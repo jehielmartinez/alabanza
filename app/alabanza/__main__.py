@@ -21,12 +21,13 @@ DEFAULT_LIBRARY = _TOOLS / "library" if (_TOOLS / "library" / "manifest.json").e
 TICK_MS = 50
 
 
-def run(screen: "curses.window", library_dir: Path, video: bool) -> None:
+def run(screen: "curses.window", library_dir: Path, video: bool,
+        settings_path: Path) -> None:
     screen.timeout(TICK_MS)
     screen.keypad(True)
     display = CursesDisplay(screen)
     player = Player(video=video)
-    app = App(library_dir, player)
+    app = App(library_dir, player, settings_path)
     if app.library.warnings:
         app.flash(f"{len(app.library.warnings)} library warnings", 4)
     try:
@@ -44,8 +45,11 @@ def main() -> int:
     parser.add_argument("--library", type=Path, default=DEFAULT_LIBRARY)
     parser.add_argument("--no-video", action="store_true",
                         help="audio only; don't open a video window")
+    parser.add_argument("--settings", type=Path,
+                        default=Path.home() / ".alabanza" / "settings.json",
+                        help="settings file (device: on the writable partition)")
     args = parser.parse_args()
-    curses.wrapper(run, args.library, not args.no_video)
+    curses.wrapper(run, args.library, not args.no_video, args.settings)
     return 0
 
 

@@ -45,6 +45,9 @@ Prototyping continues on the Pi 400 (same architecture, same OS image). **Before
 
 - Output is an **explicit menu choice** — Jack / Bluetooth / HDMI — persisted across reboots and always visible on the OLED status line.
 - The device **never auto-switches** outputs. Plugging HDMI changes video only.
+- **Video and audio are independent.** Video always plays on HDMI when connected, regardless of the audio setting. The two everyday setups are both just `Salida` choices:
+  - *Projector + church speakers*: Salida = Bluetooth (or Jack into the mixer) → video on the projector, audio through the speakers.
+  - *TV*: Salida = HDMI → picture and sound through the one cable.
 - If the selected output disappears (e.g. BT speaker dies): **pause + warn** on OLED. No silent fallback.
 
 ## Bluetooth

@@ -8,10 +8,12 @@ import time
 from enum import Enum, auto
 from pathlib import Path
 
+from . import settings as settings_mod
 from .display import ViewModel
 from .events import Event, Kind
 from .library import Library, scan
 from .player import SEEK_STEP_SECONDS, Player
+from .settings import OUTPUT_LABELS, Settings
 
 
 class Mode(Enum):
@@ -20,7 +22,7 @@ class Mode(Enum):
     SEARCH = auto()
 
 
-MENU_ITEMS = ["Output: Jack (phase 2)", "Rescan library", "Quit"]
+SAVE_DEBOUNCE_S = 2.0
 
 
 def _fmt_time(seconds: float) -> str:
@@ -29,10 +31,14 @@ def _fmt_time(seconds: float) -> str:
 
 
 class App:
-    def __init__(self, library_dir: Path, player: Player):
+    def __init__(self, library_dir: Path, player: Player,
+                 settings_path: Path | None = None):
         self.library_dir = library_dir
         self.library: Library = scan(library_dir)
         self.player = player
+        self.settings_path = settings_path
+        self.settings = settings_mod.load(settings_path) if settings_path else Settings()
+        self.player.volume = self.settings.volume
         self.mode = Mode.SELECT
         self.entry = ""            # digits typed so far
         self.browse = 0            # hymn number the encoder is resting on
@@ -43,6 +49,20 @@ class App:
         self.quit_requested = False
         self._message = ""
         self._message_until = 0.0
+        self._dirty = False
+        self._last_change = 0.0
+
+    def _touch(self) -> None:
+        """Mark settings changed; saved debounced in tick()."""
+        self._dirty = True
+        self._last_change = time.monotonic()
+
+    def _save_if_due(self, force: bool = False) -> None:
+        if not (self._dirty and self.settings_path):
+            return
+        if force or time.monotonic() - self._last_change > SAVE_DEBOUNCE_S:
+            settings_mod.save(self.settings, self.settings_path)
+            self._dirty = False
 
     # -- helpers -------------------------------------------------------
     def flash(self, text: str, seconds: float = 2.5) -> None:
@@ -77,6 +97,7 @@ class App:
     # -- event handling ------------------------------------------------
     def handle(self, event: Event) -> None:
         if event.kind is Kind.QUIT:
+            self._save_if_due(force=True)
             self.quit_requested = True
         elif event.kind is Kind.RESCAN:
             self.library = scan(self.library_dir)
@@ -120,7 +141,9 @@ class App:
         elif k in (Kind.ENC_UP, Kind.ENC_DOWN):
             step = +1 if k is Kind.ENC_UP else -1
             if self.player.active:
-                self.player.nudge_volume(step)  # spec: encoder = volume in playback
+                # spec: encoder = volume in playback, remembered per output
+                self.settings.volume = self.player.nudge_volume(step)
+                self._touch()
             else:
                 self.entry = ""
                 self.browse = self.library.neighbor(self.browse, step)
@@ -165,25 +188,39 @@ class App:
             self.browse = hymn.number
             self.mode = Mode.SELECT
 
+    def _menu_items(self) -> list[str]:
+        return [
+            f"Salida: {OUTPUT_LABELS[self.settings.output]}",
+            "Bluetooth",
+            "Reescanear biblioteca",
+            "Salir",
+        ]
+
     def _handle_menu(self, event: Event) -> None:
         k = event.kind
         if k is Kind.MENU:
             self.mode = Mode.SELECT
         elif k in (Kind.ENC_UP, Kind.ENC_DOWN):
             step = +1 if k is Kind.ENC_UP else -1
-            self.menu_pos = (self.menu_pos + step) % len(MENU_ITEMS)
+            self.menu_pos = (self.menu_pos + step) % len(self._menu_items())
         elif k in (Kind.CONFIRM, Kind.ENC_PUSH):
-            item = MENU_ITEMS[self.menu_pos]
-            if item == "Quit":
-                self.quit_requested = True
-            elif item == "Rescan library":
+            if self.menu_pos == 0:      # cycle audio output
+                output = self.settings.next_output()
+                self.player.volume = self.settings.volume  # per-output memory
+                self._touch()
+                self.flash(f"Salida: {OUTPUT_LABELS[output]}  V{self.settings.volume}")
+            elif self.menu_pos == 1:    # bluetooth submenu
+                self.flash("Bluetooth: fase 2")
+            elif self.menu_pos == 2:    # rescan
                 self.handle(Event(Kind.RESCAN))
                 self.mode = Mode.SELECT
-            else:
-                self.flash("Available in phase 2")
+            else:                       # quit
+                self._save_if_due(force=True)
+                self.quit_requested = True
 
     # -- view ----------------------------------------------------------
     def tick(self) -> ViewModel:
+        self._save_if_due()
         if self.now_playing and not self.player.active:
             self.now_playing = None  # hymn finished on its own
 
@@ -217,7 +254,7 @@ class App:
     def _view_menu(self) -> ViewModel:
         lines = [
             ("> " if i == self.menu_pos else "  ") + item
-            for i, item in enumerate(MENU_ITEMS)
+            for i, item in enumerate(self._menu_items())
         ]
         return ViewModel(
             state="alt", status_left="MENU", lines=lines,
@@ -227,7 +264,7 @@ class App:
     def _view_select(self) -> ViewModel:
         p = self.player
         vm = ViewModel()
-        vm.status_right = f"Jack V{p.volume:02d}"
+        vm.status_right = f"{OUTPUT_LABELS[self.settings.output]} V{p.volume:02d}"
         entry_label = f"Himno: {self.entry}_" if self.entry else ""
         entry_match = self.library.get(int(self.entry)) if self.entry else None
 
