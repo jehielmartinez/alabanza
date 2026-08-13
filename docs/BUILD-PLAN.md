@@ -12,9 +12,9 @@ Companion to [SPEC.md](SPEC.md). The spec says *what* the device is; this says *
 | 2 | USB audio adapter | USB-A DAC with 3.5mm out + micro-USB OTG adapter | ~$10 | The "headphone jack". Buy one known-good model, then 10 of the same |
 | 3 | mini-HDMI → HDMI | adapter or 1.5m cable | ~$5 | |
 | 4 | OLED display | 2.42" SSD1309, 128×64, **I2C version** | ~$14 | Many 2.42" modules ship SPI-configured; buy ones jumpered for I2C, or plan to move a resistor jumper |
-| 5 | Matrix keypad | 4×4, membrane or button type | ~$6 | 8-wire ribbon, plugs straight to GPIO |
+| 5 | Matrix keypad | 3×4, membrane or button type | ~$5 | 7-wire ribbon, plugs straight to GPIO |
 | 6 | Rotary encoder | EC11 with push switch, on breakout | ~$3 | KY-040 module is fine |
-| 7 | Push buttons | 7× momentary, panel-mount | ~$6 | Get good-feeling ones — they're the main interface |
+| 7 | D-pad | 5× 12 mm tactile switches in a cross + centre | ~$4 | **Digital, not analog** — the Pi has no ADC, so a thumbstick would need an MCP3008. Discrete 12 mm switches laid out as a cross beat a miniature 5-way nav switch: same familiar geometry, but sized for older hands |
 | 8 | UPS board | 2×18650, 5 V out, power-path charging, I2C fuel gauge | ~$22 | Must confirm: charges while running, exposes battery % over I2C, GPIO passthrough |
 | 9 | 18650 cells | 2× quality 3400–3500 mAh (Samsung 35E / LG MJ1 class) | ~$10 | Reputable seller only — fake-capacity cells are rampant |
 | 10 | microSD card | 32 GB, A1 class, name brand | ~$8 | OS + app + 2.1 GB library |
@@ -31,16 +31,17 @@ Assumes the I2C display. I2C bus is shared by the OLED and the UPS fuel gauge (d
 |---|---|
 | I2C (OLED + fuel gauge) | 2 (SDA), 3 (SCL) |
 | Keypad rows | 5, 6, 13, 19 |
-| Keypad columns | 12, 16, 20, 21 |
+| Keypad columns | 12, 16, 20 |
 | Encoder A / B / push | 17, 27, 22 |
-| Play/Pause | 23 |
-| Stop | 24 |
-| Seek ◀ / Seek ▶ | 25, 26 |
-| Speed − / Speed + | 7, 8 |
-| Menu/Back | 9 |
+| D-pad centre (Play/Pause) | 23 |
+| D-pad ◀ / ▶ | 25, 26 |
+| D-pad ▲ / ▼ | 7, 8 |
 | Reserved (debug UART) | 14, 15 — keep free |
+| Spare | 4, 9, 10, 11, 18, 21, 24 |
 
-All buttons and keypad use internal pull-ups, switch to ground — no external resistors needed. If the display ends up SPI-only, it takes 10 (MOSI), 11 (SCLK), 8 (CE0) + two pins for DC/RST, and the Speed/Menu buttons move to 4, 18, and one of 14/15.
+**17 pins used, 7 spare.** The 3×4 keypad and the D-pad freed up four lines versus the original 4×4-plus-seven-buttons plan, which leaves room if the display ends up SPI-only (10 MOSI, 11 SCLK, 8 CE0, plus two for DC/RST) — in that case ▲▼ move to 4 and 18.
+
+All buttons and keypad use internal pull-ups, switch to ground — no external resistors needed.
 
 ## Prototyping hardware: Pi 400 (on hand)
 
@@ -76,7 +77,9 @@ Pi (400 for comfort, or the prototype Zero 2 W) + OLED + keypad + encoder + butt
 
 ### Phase 2 — Outputs: Bluetooth + HDMI (weekend 3)
 
-- Bluetooth menu on OLED: scan / pair / connect / disconnect / forget (BlueZ over D-Bus); auto-reconnect to last-used speaker when BT is the selected output; per-output volume memory
+> Bluetooth is designed in detail in **[BLUETOOTH.md](BLUETOOTH.md)** — architecture, screen flows, audio routing, and the build order that keeps protocol debugging away from UI debugging.
+
+- ✅ Bluetooth menu on OLED: scan / pair / connect / disconnect / forget (BlueZ over D-Bus); auto-reconnect to last-used speaker when BT is the selected output; per-output volume memory — *built and exercised against the fake backend; the real BlueZ backend is written but untested on hardware*
 - Explicit output selection menu (Jack / BT / HDMI), persisted
 - HDMI: mpv full-screen via DRM/KMS, static `screensaver.png` when idle/stopped, freeze-frame on pause, quiet boot (no console text, no rainbow splash)
 

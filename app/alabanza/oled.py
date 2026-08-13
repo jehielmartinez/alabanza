@@ -68,6 +68,17 @@ def _draw_monitor(draw, x: int, y: int) -> None:
     draw.line((x + 2, y + 9, x + 7, y + 9), fill=1)
 
 
+def _strike(draw, x: int, y: int) -> None:
+    """Slash an output icon: the selected output isn't there.
+
+    A black channel is cleared first so the slash reads as a slash and not as
+    one more stroke of the rune. No blinking — a flashing status bar in a dim
+    sanctuary reads as a fault.
+    """
+    draw.line((x - 1, y + 11, x + 10, y), fill=0, width=3)
+    draw.line((x - 1, y + 11, x + 10, y), fill=1)
+
+
 _OUTPUT_ICONS = {
     "jack": _draw_headphones,
     "bluetooth": _draw_bt_rune,
@@ -87,10 +98,13 @@ def _status_bar(draw, vm: ViewModel) -> None:
     draw.text((x, 0), left, font=FONT_SMALL, fill=1)
 
     if vm.volume is not None and vm.output in _OUTPUT_ICONS:
-        vol = str(vm.volume)                    # "<icon>80", right-aligned
+        # "<icon>80" right-aligned; the number says whether the output is there
+        vol = {"down": "--", "connecting": "…"}.get(vm.output_state, str(vm.volume))
         right = WIDTH - _w(draw, vol, FONT_SMALL)
         draw.text((right, 0), vol, font=FONT_SMALL, fill=1)
         _OUTPUT_ICONS[vm.output](draw, right - 13, 0)
+        if vm.output_state == "down":
+            _strike(draw, right - 13, 0)
     elif vm.status_right:
         draw.text((WIDTH - _w(draw, vm.status_right, FONT_SMALL), 0),
                   vm.status_right, font=FONT_SMALL, fill=1)

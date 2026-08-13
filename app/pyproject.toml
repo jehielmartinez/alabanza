@@ -6,8 +6,8 @@ requires-python = ">=3.11"
 dependencies = ["python-mpv>=1.0.7", "pillow>=10.1"]
 
 [project.optional-dependencies]
-# only on the device: talks to the real SSD1309 over I2C
-device = ["luma.oled>=3.13"]
+# only on the device: talks to the real SSD1309 over I2C, and to BlueZ
+device = ["luma.oled>=3.13", "dbus-fast>=2.21"]
 # dev: --oled flag opens a window with the exact 128x64 rendering
 emu = ["luma.emulator>=1.5"]
 

@@ -7,6 +7,7 @@ and physical controls. Battery powered, fully portable.
 
 - **[docs/SPEC.md](docs/SPEC.md)** — what the device is; every design decision and why
 - **[docs/BUILD-PLAN.md](docs/BUILD-PLAN.md)** — how it gets built: phases, BOM, GPIO pin map, production run
+- **[docs/BLUETOOTH.md](docs/BLUETOOTH.md)** — Phase 2 design: BT architecture, screen flows, audio routing
 
 ## Repo layout
 
@@ -44,7 +45,25 @@ macOS; `apt install libmpv2` on Raspberry Pi OS).
 cd app
 uv run alabanza              # terminal UI, keyboard stands in for the controls
 uv run alabanza --no-video   # audio only
+uv run alabanza --oled       # also show the exact 128x64 OLED pixels
+uv run alabanza --bt none    # pretend there is no bluetooth adapter
 ```
 
-Keys: digits + Enter play a hymn by number, `/` opens T9 title search,
-Space pause, `s` stop, arrows seek/browse, `-`/`+` speed, `m` menu, `q` quit.
+The device has a 3×4 keypad, a 5-way D-pad and a rotary encoder — nothing else.
+The keyboard stands in for them:
+
+| Key | Control |
+|---|---|
+| `0`–`9`, `*`, `#` | keypad — number, back/stop, play |
+| `Space`, `←` `→`, `↑` `↓` | D-pad — centre, seek, up/down |
+| `-` `+` | encoder wheel (volume) |
+| `m` | encoder push (opens the menu) |
+| `r`, `q` | rescan, quit (dev only) |
+
+`↑`/`↓` change the speed while a hymn plays and browse the library when it
+doesn't; T9 title search lives in the menu.
+
+Bluetooth runs against a **fake backend** by default off-device — scripted
+speakers with realistic latencies, one that drops mid-hymn and one that never
+answers, so the failure paths can be rehearsed on a laptop. `m` → `Bluetooth`.
+On the Pi, `--bt real` talks to BlueZ.

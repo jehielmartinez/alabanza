@@ -3,6 +3,7 @@
     uv run alabanza                       # library from ../tools/downloads
     uv run alabanza --library /path/dir   # explicit library dir
     uv run alabanza --no-video            # audio only (no mpv window)
+    uv run alabanza --bt none             # no bluetooth adapter (default: fake)
 """
 
 import argparse
@@ -39,15 +40,33 @@ def _oled_emulator_display():
         pygame_device(width=128, height=64, scale=4, transform="identity"))
 
 
+def _bluetooth_backend(choice: str):
+    from .bluetooth import NullBackend
+
+    if choice == "fake":
+        from .bt_fake import FakeBackend
+        return FakeBackend()
+    if choice == "real":
+        try:
+            from .bt_bluez import BluezBackend
+            return BluezBackend()
+        except ImportError:
+            # missing dbus-fast must not stop the device from playing hymns
+            # into the jack; the OLED will simply report Bluetooth as off
+            return NullBackend()
+    return NullBackend()
+
+
 def run(screen: "curses.window", library_dir: Path, video: bool,
-        settings_path: Path, oled: bool) -> None:
+        settings_path: Path, oled: bool, bt_choice: str) -> None:
     screen.timeout(TICK_MS)
     screen.keypad(True)
     displays = [CursesDisplay(screen)]
     if oled:
         displays.append(_oled_emulator_display())
     player = Player(video=video)
-    app = App(library_dir, player, settings_path)
+    bt = _bluetooth_backend(bt_choice)
+    app = App(library_dir, player, settings_path, bt)
     if app.library.warnings:
         app.flash(f"{len(app.library.warnings)} library warnings", 4)
     try:
@@ -59,6 +78,7 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
             for display in displays:
                 display.render(vm)
     finally:
+        bt.close()
         player.shutdown()
 
 
@@ -73,9 +93,12 @@ def main() -> int:
     parser.add_argument("--oled", action="store_true",
                         help="also show the exact 128x64 OLED rendering in a "
                              "window (requires: uv sync --extra emu)")
+    parser.add_argument("--bt", choices=("fake", "real", "none"), default="fake",
+                        help="bluetooth backend: scripted speakers (default), "
+                             "real BlueZ (device only), or no adapter")
     args = parser.parse_args()
     curses.wrapper(run, args.library, not args.no_video, args.settings,
-                   args.oled)
+                   args.oled, args.bt)
     return 0
 
 

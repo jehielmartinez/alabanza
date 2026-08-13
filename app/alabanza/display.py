@@ -32,6 +32,7 @@ class ViewModel:
     status_left: str = ""
     status_right: str = ""        # text form (terminal); OLED prefers the fields below
     output: str = ""              # "jack" / "bluetooth" / "hdmi" -> drawn as an icon
+    output_state: str = "ok"      # ok | connecting | down -> strikes the icon
     volume: int | None = None     # number next to the output icon
     title: str = ""
     subtitle: str = ""
@@ -75,8 +76,9 @@ class CursesDisplay:
     """Terminal stand-in for the OLED, sized like the real thing."""
 
     KEY_HELP = (
-        "keys: 0-9 number | Enter/# play | * clear | Space pause | s stop | "
-        "arrows seek/browse | -/+ speed | / search | m menu | r rescan | q quit"
+        "0-9 number | #/Enter play | * back/stop | Space play-pause | "
+        "←→ seek | ↑↓ browse or speed | -/+ wheel (volume) | m push (menu) | "
+        "r rescan | q quit"
     )
     _STATE_PAIR = {"playing": 1, "paused": 2, "alt": 3, "idle": 0}
 

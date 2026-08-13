@@ -52,8 +52,45 @@ SCREENS = {
     ),
     "menu": ViewModel(
         state="alt", status_left="MENU",
-        lines=["> Salida: Bluetooth", "  Bluetooth", "  Reescanear biblioteca",
-               "  Salir"],
+        lines=["> Salida: Bluetooth", "  Bluetooth", "  Buscar por titulo"],
+        hint="* volver",
+    ),
+    # ✓ connected · paired, no glyph = discovered but not paired
+    "bt_list": ViewModel(
+        state="alt", status_left="Bluetooth", status_right="buscando…",
+        lines=["> ✓JBL Flip 5", "  ·Bocina Iglesia", "   Soundcore 2"],
+        hint="gira y pulsa",
+    ),
+    "bt_scan": ViewModel(
+        state="alt", status_left="Bluetooth", status_right="buscando…",
+        lines=["  ·Bocina Iglesia", "   Soundcore 2", "> Buscar de nuevo"],
+        hint="gira y pulsa",
+    ),
+    "bt_busy": ViewModel(
+        state="alt", status_left="Bluetooth", status_right="4s",
+        lines=["Conectando…", "  JBL Flip 5"], hint="*: cancelar",
+    ),
+    "bt_device": ViewModel(
+        state="alt", status_left="JBL Flip 5", status_right="✓",
+        lines=["> Desconectar", "  Olvidar", "  Volver"], hint="gira y pulsa",
+    ),
+    "bt_forget": ViewModel(
+        state="alt", status_left="¿Olvidar?",
+        lines=["  JBL Flip 5", "  Sí", "> No"],
+        hint="gira y pulsa",
+    ),
+    # the speaker is gone: struck-through rune, "--" where the volume was
+    "bt_lost": ViewModel(
+        state="paused", status_left="❚❚ Pausa", output="bluetooth",
+        output_state="down", volume=60,
+        title="279 · ¡Santo! ¡Santo! ¡Santo!",
+        progress=0.62, time_pos="02:24", time_dur="03:51",
+        hint="BT perdido - pausado",
+    ),
+    "bt_connecting": ViewModel(
+        state="idle", status_left="● Listo", output="bluetooth",
+        output_state="connecting", volume=60,
+        title="Himno: ---", subtitle="teclea un numero",
     ),
 }
 

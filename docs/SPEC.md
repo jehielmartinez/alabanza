@@ -14,9 +14,9 @@ Production target: **10 units**, cost-optimized. The library turned out to be 48
 | Audio out (jack) | USB audio adapter + micro-USB OTG adapter | Zero 2 W has no analog jack; a USB DAC (~$8) is cleaner than the Pi 4's analog out anyway |
 | Video out | mini-HDMI → HDMI adapter | Zero 2 W uses mini-HDMI |
 | Display | 2.42" SSD1309 OLED, 128×64 | Readable at a glance in a dim room, including for older eyes; same driver family as smaller modules |
-| Keypad | 4×4 matrix (0–9, *, #, A–D) | Digit entry + T9-style search |
-| Encoder | Rotary with push button | List/menu scrolling; volume during playback |
-| Buttons | Dedicated: Play/Pause, Stop, Seek ◀, Seek ▶, Speed −, Speed +, Menu/Back | Transport must be single-press, eyes-free, unambiguous in live use |
+| Keypad | 3×4 matrix (0–9, *, #) | Digit entry, and letters for T9 search. No A–D column: nothing needs it |
+| Buttons | A 5-way **D-pad**: ◀ ▶ ▲ ▼ + centre | One familiar part instead of seven loose buttons. ◀▶ seek, ▲▼ adjust, centre plays/pauses |
+| Encoder | Rotary with push button | Wheel = volume, always. Push = menu |
 | Storage | 32 GB microSD | OS + app + the 2.1 GB library, with margin |
 | Battery | 2×18650 UPS board (~25 Wh), I2C fuel gauge | 8h+ playback at ~2 W draw; charges in place; usable while charging |
 
@@ -29,17 +29,43 @@ Prototyping continues on the Pi 400 (same architecture, same OS image). **Before
 - Provisioning builds a **number → title → file index** (from filenames or a generated manifest); runtime never parses filenames.
 - When no HDMI is connected, playback is audio-only (video decode suppressed).
 
+## Controls
+
+Nineteen inputs, and **every function reachable with one press** — no chords, no
+long-presses, nothing hidden. Fewer controls is a hard goal, not a preference:
+each one is a panel cutout ×10 units and a line on the laminated card.
+
+| Control | Home screen | List screens (menu, Bluetooth, search) |
+|---|---|---|
+| `0`–`9` | hymn number | T9 letters, in search |
+| `*` | erase a digit — or, with nothing typed, **stop** | back / cancel |
+| `#` | play the selection | confirm |
+| D-pad centre | play / pause | play / pause (menus never take the transport) |
+| D-pad ◀ ▶ | seek | seek |
+| D-pad ▲ ▼ | **speed** while playing, browse while idle | move the cursor |
+| Wheel | **volume**, always | move the cursor |
+| Push | **menu** | select |
+
+Four functions have no button of their own and are none the worse: Stop is `*`
+("clear what is going on"), Speed is ▲▼ *while a hymn plays* — exactly when it
+is wanted — the Menu is the encoder push, and T9 search is a menu entry, since
+the spec already makes it the secondary path to a hymn.
+
+The one thing given up: browsing the list while a hymn plays, because ▲▼ are the
+speed then. Typing the next number still works during playback, which is the
+way an operator queues the next hymn anyway.
+
 ## Selection
 
 1. **Primary: direct number entry.** Operator types the hymn number; OLED live-updates with number + title; Play or `#` confirms and starts playback.
-2. **Secondary: browse + search.** Scrollable title list (rotary encoder) with T9 multi-tap title search on the keypad, for when the number isn't known.
+2. **Secondary: browse + search.** Scrollable title list (D-pad ▲▼ or the wheel) with T9 multi-tap title search on the keypad, reached from the menu, for when the number isn't known.
 
 ## Playback
 
 - **Engine**: mpv (libmpv). One engine for video, audio-only, seek, pause, speed.
-- **Speed**: pitch-preserved time-stretch (`scaletempo2`), **75%–125% in 5% steps**. Key never changes — safe for singalong. Shown on OLED. **Resets to 100% on each new hymn.**
-- **Seek**: ◀/▶ buttons step through the track (default step: 10 s; held = repeat).
-- **Volume**: rotary encoder during playback. **Persisted per output** (Jack / BT / HDMI each remember their own level) so switching outputs never produces a surprise.
+- **Speed**: pitch-preserved time-stretch (`scaletempo2`), **75%–125% in 5% steps**, on the D-pad's ▲▼ while a hymn plays. Key never changes — safe for singalong. Shown on OLED. **Resets to 100% on each new hymn.**
+- **Seek**: D-pad ◀/▶ step through the track (default step: 10 s; held = repeat).
+- **Volume**: the encoder wheel, at any time. **Persisted per output** (Jack / BT / HDMI each remember their own level) so switching outputs never produces a surprise.
 
 ## Audio routing
 
@@ -84,7 +110,7 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 
 - **OS**: Raspberry Pi OS Lite (64-bit), no desktop. Video renders via DRM/KMS directly — this is what makes "nothing but the video" easy and boot fast (~10–15 s to ready).
 - **App**: Python 3, single systemd service, structured as a state machine reacting to input events.
-- **Key libraries**: `python-mpv` (playback), `luma.oled` (SSD1309), `gpiozero` (keypad, buttons, encoder), BlueZ over D-Bus (Bluetooth).
+- **Key libraries**: `python-mpv` (playback), `luma.oled` (SSD1309), `gpiozero` (keypad, buttons, encoder), BlueZ over D-Bus via `dbus-fast` (Bluetooth — see [BLUETOOTH.md](BLUETOOTH.md)).
 
 ## Open questions (minor, non-blocking)
 
@@ -98,7 +124,12 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 1. **Hardware: Raspberry Pi 4** — only model covering every requirement natively.
 2. **Library format: MP4 only** — MP3s are the same recordings; dropped.
 3. **Selection: number entry first; browse + title search fallback.**
-4. **Controls: 4×4 keypad + rotary encoder + dedicated transport buttons.**
+4. **Controls: 3×4 keypad + 5-way D-pad + rotary encoder** (supersedes the
+   original 4×4-plus-seven-buttons plan). 19 inputs, every function one press
+   away. A D-pad is one familiar, cheap part where seven panel-mount buttons
+   were seven cutouts and seven chances to mislabel; ◀▶ = seek and centre =
+   play are conventions nobody has to be taught. Dropped along the way: the
+   A–D keypad column, and the dedicated Stop, Speed ± and Menu buttons.
 5. **Audio routing: explicit persisted menu choice; never auto-switches; pause + warn on output loss.**
 6. **Volume: rotary during playback; per-output memory.**
 7. **Speed: pitch-preserved, 75–125% in 5% steps; resets per hymn.**

@@ -83,6 +83,27 @@ class Player:
     def speed(self) -> float:
         return float(self._mpv.speed)
 
+    # -- output routing ------------------------------------------------
+    @property
+    def audio_devices(self) -> list[tuple[str, str]]:
+        """mpv's own sink list, as (name, description). audio.py matches on it."""
+        try:
+            return [(d["name"], d.get("description") or "")
+                    for d in (self._mpv.audio_device_list or [])]
+        except (AttributeError, KeyError, TypeError):
+            return []
+
+    @property
+    def audio_device(self) -> str:
+        return str(self._mpv.audio_device or "auto")
+
+    @audio_device.setter
+    def audio_device(self, name: str) -> None:
+        """Switching while playing costs a sub-second AO reinit — acceptable,
+        and only ever triggered by an explicit menu action."""
+        if name and name != self.audio_device:
+            self._mpv.audio_device = name
+
     @property
     def volume(self) -> int:
         return int(self._mpv.volume or 0)

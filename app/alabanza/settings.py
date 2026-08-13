@@ -20,7 +20,10 @@ DEFAULT_VOLUMES = {"jack": 80, "bluetooth": 60, "hdmi": 80}
 class Settings:
     output: str = "jack"
     volumes: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_VOLUMES))
-    last_bt_device: str = ""      # MAC of last-used speaker (phase 2)
+    last_bt_device: str = ""      # MAC of the speaker to reconnect to at boot
+    # MAC -> friendly name, so the OLED can show real names before the adapter
+    # answers. BlueZ stays the source of truth for what is actually paired.
+    bt_names: dict[str, str] = field(default_factory=dict)
 
     @property
     def volume(self) -> int:
@@ -48,6 +51,8 @@ def load(path: Path) -> Settings:
         if name in OUTPUTS and isinstance(vol, int):
             s.volumes[name] = max(0, min(100, vol))
     s.last_bt_device = str(data.get("last_bt_device", ""))
+    for mac, name in (data.get("bt_names") or {}).items():
+        s.bt_names[str(mac)] = str(name)
     return s
 
 
