@@ -1,0 +1,16 @@
+# Alabanza hymn playlists — one YouTube playlist URL per line.
+# Lines starting with # and blank lines are ignored.
+#
+# Channel: https://www.youtube.com/@zacariasjeremias275
+# HIMNOS Y CÁNTICOS DEL EVANGELIO, "Conforme a las partituras", hymns 1–517.
+
+# 1/5 — Himnos 1 al 100
+https://www.youtube.com/playlist?list=PLsEBHSJsyYTRuC8G2ZdcMaFLoc6T3mQ_O
+# 2/5 — Himnos 101 al 200
+https://www.youtube.com/playlist?list=PLsEBHSJsyYTT3XGPdTKh0cCTMjg7CzLzx
+# 3/5 — Himnos 201 al 300
+https://www.youtube.com/playlist?list=PLsEBHSJsyYTTqtd_q84aMigJX0voiWD_7
+# 4/5 — Himnos 301 al 400
+https://www.youtube.com/playlist?list=PLsEBHSJsyYTQ18vMUQKYLLZMMkvbRd1Pz
+# 5/5 — Himnos 401 al 517
+https://www.youtube.com/playlist?list=PLsEBHSJsyYTTULYAw5FWiOCNuWZSCp4yx

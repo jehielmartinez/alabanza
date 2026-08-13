@@ -1,0 +1,13 @@
+# media — 2.3 GB of downloaded/provisioned hymns, regenerable with the
+# tools/ scripts (download_hymns.py, provision_library.py)
+tools/downloads/
+tools/library/
+*.mp4
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
