@@ -21,11 +21,31 @@ DEFAULT_LIBRARY = _TOOLS / "library" if (_TOOLS / "library" / "manifest.json").e
 TICK_MS = 50
 
 
+def _oled_emulator_display():
+    """The real OLED renderer drawn into a pygame window (dev only)."""
+    import pygame
+    from luma.emulator.device import pygame as pygame_device
+
+    from .oled import OledDisplay
+
+    class EmulatorDisplay(OledDisplay):
+        def render(self, vm) -> None:
+            # macOS marks the window unresponsive unless its event queue
+            # is drained every frame (worst once mpv's window takes focus)
+            pygame.event.pump()
+            super().render(vm)
+
+    return EmulatorDisplay(
+        pygame_device(width=128, height=64, scale=4, transform="identity"))
+
+
 def run(screen: "curses.window", library_dir: Path, video: bool,
-        settings_path: Path) -> None:
+        settings_path: Path, oled: bool) -> None:
     screen.timeout(TICK_MS)
     screen.keypad(True)
-    display = CursesDisplay(screen)
+    displays = [CursesDisplay(screen)]
+    if oled:
+        displays.append(_oled_emulator_display())
     player = Player(video=video)
     app = App(library_dir, player, settings_path)
     if app.library.warnings:
@@ -35,7 +55,9 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
             event = read_event(screen)
             if event:
                 app.handle(event)
-            display.render(app.tick())
+            vm = app.tick()
+            for display in displays:
+                display.render(vm)
     finally:
         player.shutdown()
 
@@ -48,8 +70,12 @@ def main() -> int:
     parser.add_argument("--settings", type=Path,
                         default=Path.home() / ".alabanza" / "settings.json",
                         help="settings file (device: on the writable partition)")
+    parser.add_argument("--oled", action="store_true",
+                        help="also show the exact 128x64 OLED rendering in a "
+                             "window (requires: uv sync --extra emu)")
     args = parser.parse_args()
-    curses.wrapper(run, args.library, not args.no_video, args.settings)
+    curses.wrapper(run, args.library, not args.no_video, args.settings,
+                   args.oled)
     return 0
 
 

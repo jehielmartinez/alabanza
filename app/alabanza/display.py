@@ -30,7 +30,9 @@ WIDTH = 25  # chars that fit on the 128x64 OLED with a 5x8 font
 class ViewModel:
     state: str = "idle"           # idle | playing | paused | alt (menus)
     status_left: str = ""
-    status_right: str = ""
+    status_right: str = ""        # text form (terminal); OLED prefers the fields below
+    output: str = ""              # "jack" / "bluetooth" / "hdmi" -> drawn as an icon
+    volume: int | None = None     # number next to the output icon
     title: str = ""
     subtitle: str = ""
     progress: float | None = None  # 0..1, renders the bar row

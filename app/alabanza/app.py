@@ -265,6 +265,8 @@ class App:
         p = self.player
         vm = ViewModel()
         vm.status_right = f"{OUTPUT_LABELS[self.settings.output]} V{p.volume:02d}"
+        vm.output = self.settings.output
+        vm.volume = p.volume
         entry_label = f"Himno: {self.entry}_" if self.entry else ""
         entry_match = self.library.get(int(self.entry)) if self.entry else None
 
@@ -290,9 +292,8 @@ class App:
                 vm.subtitle = hymn.title if hymn else ""
             else:
                 vm.title = "Himno: ---"
-                vm.subtitle = "teclea un numero"
-            n = len(self.library.hymns)
-            vm.meta_left = f"{n} himnos" if n else "biblioteca vacia"
+                vm.subtitle = ("teclea un numero" if self.library.hymns
+                               else "biblioteca vacia")
 
         vm.hint = self.message
         return vm

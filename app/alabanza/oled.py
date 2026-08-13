@@ -1,0 +1,180 @@
+"""OLED rendering: ViewModel -> 128x64 1-bit image -> SSD1309.
+
+Pure Pillow, so it runs anywhere (previews on a dev machine, the real
+display on the device). Only OledDisplay touches luma.oled, lazily.
+
+Fonts: Terminus (vendored in fonts/, OFL license) — a pixel font with
+full Spanish coverage, crisp at exact sizes 12/16 on a 1-bit panel.
+
+Layout (128x64):
+    y0   status bar (drawn icon + text | right text)
+    y13  separator
+    y16  lists: 4 rows of 12px, cursor row inverted
+      or title (16px bold, pixel marquee)
+    y34  subtitle (idle) / progress bar (playing)
+    y42+ bottom row: times + speed (playing) or meta (idle);
+         transient hints replace it
+"""
+
+import time
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFont
+
+from .display import ViewModel
+
+WIDTH, HEIGHT = 128, 64
+_FONTS = Path(__file__).parent / "fonts"
+FONT_SMALL = ImageFont.truetype(str(_FONTS / "TerminusTTF-4.49.3.ttf"), 12)
+FONT_TITLE = ImageFont.truetype(str(_FONTS / "TerminusTTF-Bold-4.49.3.ttf"), 14)
+
+
+def _w(draw: ImageDraw.ImageDraw, text: str, font) -> int:
+    return int(draw.textlength(text, font=font))
+
+
+def _draw_status_icon(draw, icon: str) -> None:
+    if icon == "▶":
+        draw.polygon([(1, 2), (1, 10), (9, 6)], fill=1)
+    elif icon == "❚❚":
+        draw.rectangle((1, 2, 3, 10), fill=1)
+        draw.rectangle((6, 2, 8, 10), fill=1)
+    elif icon == "●":
+        draw.ellipse((1, 3, 8, 10), fill=1)
+
+
+def _draw_headphones(draw, x: int, y: int) -> None:
+    """Jack output: headband arc + two earpads."""
+    draw.arc((x, y, x + 9, y + 9), 180, 360, fill=1)
+    draw.arc((x, y + 1, x + 9, y + 10), 180, 360, fill=1)
+    draw.rectangle((x, y + 5, x + 2, y + 9), fill=1)
+    draw.rectangle((x + 7, y + 5, x + 9, y + 9), fill=1)
+
+
+def _draw_bt_rune(draw, x: int, y: int) -> None:
+    """Bluetooth output: the angular 'B' rune."""
+    m = x + 4                                   # the vertical stem
+    draw.line((m, y, m, y + 10), fill=1)
+    draw.line((m, y, m + 4, y + 3), fill=1)     # top-right diagonal
+    draw.line((m + 4, y + 3, m - 4, y + 8), fill=1)
+    draw.line((m - 4, y + 3, m + 4, y + 8), fill=1)
+    draw.line((m + 4, y + 8, m, y + 10), fill=1)
+
+
+def _draw_monitor(draw, x: int, y: int) -> None:
+    """HDMI output: a screen on a stand."""
+    draw.rectangle((x, y + 1, x + 9, y + 7), outline=1, fill=0)
+    draw.line((x + 4, y + 8, x + 5, y + 8), fill=1)
+    draw.line((x + 2, y + 9, x + 7, y + 9), fill=1)
+
+
+_OUTPUT_ICONS = {
+    "jack": _draw_headphones,
+    "bluetooth": _draw_bt_rune,
+    "hdmi": _draw_monitor,
+}
+
+
+def _status_bar(draw, vm: ViewModel) -> None:
+    left = vm.status_left
+    x = 0
+    for icon in ("▶", "❚❚", "●"):
+        if left.startswith(icon):
+            _draw_status_icon(draw, icon)
+            left = left.removeprefix(icon).lstrip()
+            x = 13
+            break
+    draw.text((x, 0), left, font=FONT_SMALL, fill=1)
+
+    if vm.volume is not None and vm.output in _OUTPUT_ICONS:
+        vol = str(vm.volume)                    # "<icon>80", right-aligned
+        right = WIDTH - _w(draw, vol, FONT_SMALL)
+        draw.text((right, 0), vol, font=FONT_SMALL, fill=1)
+        _OUTPUT_ICONS[vm.output](draw, right - 13, 0)
+    elif vm.status_right:
+        draw.text((WIDTH - _w(draw, vm.status_right, FONT_SMALL), 0),
+                  vm.status_right, font=FONT_SMALL, fill=1)
+    draw.line((0, 13, WIDTH, 13), fill=1)
+
+
+def _marquee_px(draw, y, text, font, px_per_sec=24):
+    """Draw text at y; pixel-scroll it when wider than the screen."""
+    if _w(draw, text, font) <= WIDTH:
+        draw.text((0, y), text, font=font, fill=1)
+        return
+    loop = text + "  ·  "
+    loop_w = _w(draw, loop, font)
+    offset = int(time.monotonic() * px_per_sec) % loop_w
+    draw.text((-offset, y), loop + loop, font=font, fill=1)
+
+
+def _list_rows(draw, lines: list[str]) -> None:
+    y = 16
+    for line in lines[:4]:
+        if line.startswith("> "):  # cursor row: inverted block
+            draw.rectangle((0, y - 1, WIDTH, y + 11), fill=1)
+            draw.text((2, y), line[2:], font=FONT_SMALL, fill=0)
+        else:
+            draw.text((2, y), line.removeprefix("  "), font=FONT_SMALL, fill=1)
+        y += 12
+
+
+def _bottom_row(draw, vm: ViewModel, y: int) -> None:
+    if vm.hint:
+        draw.text((0, y), vm.hint, font=FONT_SMALL, fill=1)
+        return
+    if vm.progress is not None:  # playing: pos | speed | dur (or pending entry)
+        draw.text((0, y), vm.time_pos, font=FONT_SMALL, fill=1)
+        if vm.meta_left:
+            draw.text(((WIDTH - _w(draw, vm.meta_left, FONT_SMALL)) // 2, y),
+                      vm.meta_left, font=FONT_SMALL, fill=1)
+        right = vm.meta_right or vm.time_dur
+        draw.text((WIDTH - _w(draw, right, FONT_SMALL), y),
+                  right, font=FONT_SMALL, fill=1)
+    else:                        # idle: meta line
+        draw.text((0, y), vm.meta_left, font=FONT_SMALL, fill=1)
+        if vm.meta_right:
+            draw.text((WIDTH - _w(draw, vm.meta_right, FONT_SMALL), y),
+                      vm.meta_right, font=FONT_SMALL, fill=1)
+
+
+def render(vm: ViewModel) -> Image.Image:
+    """The one true OLED layout. Same ViewModel the terminal UI shows."""
+    img = Image.new("1", (WIDTH, HEIGHT), 0)
+    draw = ImageDraw.Draw(img)
+    _status_bar(draw, vm)
+
+    if vm.lines:
+        _list_rows(draw, vm.lines)
+        if vm.hint:
+            draw.rectangle((0, 52, WIDTH, HEIGHT), fill=0)
+            draw.text((0, 52), vm.hint, font=FONT_SMALL, fill=1)
+        return img
+
+    _marquee_px(draw, 15, vm.title, FONT_TITLE)
+    if vm.progress is not None:
+        draw.rectangle((0, 34, WIDTH - 1, 39), outline=1, fill=0)
+        fill_w = round(max(0.0, min(1.0, vm.progress)) * (WIDTH - 3))
+        if fill_w:
+            draw.rectangle((1, 35, 1 + fill_w, 38), fill=1)
+        _bottom_row(draw, vm, 44)
+    else:
+        if vm.subtitle:
+            draw.text((0, 34), vm.subtitle, font=FONT_SMALL, fill=1)
+        _bottom_row(draw, vm, 52)
+    return img
+
+
+class OledDisplay:
+    """Display backend for the real SSD1309 (or any luma device)."""
+
+    def __init__(self, device=None):
+        if device is None:
+            from luma.core.interface.serial import i2c
+            from luma.oled.device import ssd1309
+
+            device = ssd1309(i2c(port=1, address=0x3C))
+        self.device = device
+
+    def render(self, vm: ViewModel) -> None:
+        self.device.display(render(vm).convert(self.device.mode))
