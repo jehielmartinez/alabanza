@@ -33,6 +33,17 @@ def _w(draw: ImageDraw.ImageDraw, text: str, font) -> int:
     return int(draw.textlength(text, font=font))
 
 
+def _fit(draw, text: str, font, width: int = WIDTH) -> str:
+    """Trim to the panel with an ellipsis. Hymn titles are long — "Bienvenida
+    da Jesús" is wider than 128 px — and silently running off the glass looks
+    like a rendering fault rather than a long title."""
+    if _w(draw, text, font) <= width:
+        return text
+    while text and _w(draw, text + "…", font) > width:
+        text = text[:-1]
+    return text + "…"
+
+
 def _draw_status_icon(draw, icon: str) -> None:
     if icon == "▶":
         draw.polygon([(1, 2), (1, 10), (9, 6)], fill=1)
@@ -111,25 +122,29 @@ def _status_bar(draw, vm: ViewModel) -> None:
     draw.line((0, 13, WIDTH, 13), fill=1)
 
 
-def _marquee_px(draw, y, text, font, px_per_sec=24):
+def _marquee_px(draw, y, text, font, px_per_sec=24, now=None):
     """Draw text at y; pixel-scroll it when wider than the screen."""
     if _w(draw, text, font) <= WIDTH:
         draw.text((0, y), text, font=font, fill=1)
         return
     loop = text + "  ·  "
     loop_w = _w(draw, loop, font)
-    offset = int(time.monotonic() * px_per_sec) % loop_w
+    now = time.monotonic() if now is None else now
+    offset = int(now * px_per_sec) % loop_w
     draw.text((-offset, y), loop + loop, font=font, fill=1)
 
 
 def _list_rows(draw, lines: list[str]) -> None:
     y = 16
     for line in lines[:4]:
-        if line.startswith("> "):  # cursor row: inverted block
+        cursor = line.startswith("> ")
+        text = _fit(draw, line[2:] if cursor else line.removeprefix("  "),
+                    FONT_SMALL, WIDTH - 2)
+        if cursor:                 # cursor row: inverted block
             draw.rectangle((0, y - 1, WIDTH, y + 11), fill=1)
-            draw.text((2, y), line[2:], font=FONT_SMALL, fill=0)
+            draw.text((2, y), text, font=FONT_SMALL, fill=0)
         else:
-            draw.text((2, y), line.removeprefix("  "), font=FONT_SMALL, fill=1)
+            draw.text((2, y), text, font=FONT_SMALL, fill=1)
         y += 12
 
 
@@ -152,8 +167,11 @@ def _bottom_row(draw, vm: ViewModel, y: int) -> None:
                       vm.meta_right, font=FONT_SMALL, fill=1)
 
 
-def render(vm: ViewModel) -> Image.Image:
-    """The one true OLED layout. Same ViewModel the terminal UI shows."""
+def render(vm: ViewModel, now: float | None = None) -> Image.Image:
+    """The one true OLED layout. Same ViewModel the terminal UI shows.
+
+    `now` fixes the marquee position; leave it None for live rendering.
+    """
     img = Image.new("1", (WIDTH, HEIGHT), 0)
     draw = ImageDraw.Draw(img)
     _status_bar(draw, vm)
@@ -165,7 +183,7 @@ def render(vm: ViewModel) -> Image.Image:
             draw.text((0, 52), vm.hint, font=FONT_SMALL, fill=1)
         return img
 
-    _marquee_px(draw, 15, vm.title, FONT_TITLE)
+    _marquee_px(draw, 15, vm.title, FONT_TITLE, now=now)
     if vm.progress is not None:
         draw.rectangle((0, 34, WIDTH - 1, 39), outline=1, fill=0)
         fill_w = round(max(0.0, min(1.0, vm.progress)) * (WIDTH - 3))
@@ -174,7 +192,8 @@ def render(vm: ViewModel) -> Image.Image:
         _bottom_row(draw, vm, 44)
     else:
         if vm.subtitle:
-            draw.text((0, 34), vm.subtitle, font=FONT_SMALL, fill=1)
+            draw.text((0, 34), _fit(draw, vm.subtitle, FONT_SMALL),
+                      font=FONT_SMALL, fill=1)
         _bottom_row(draw, vm, 52)
     return img
 

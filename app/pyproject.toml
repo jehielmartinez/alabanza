@@ -10,9 +10,18 @@ dependencies = ["python-mpv>=1.0.7", "pillow>=10.1"]
 device = ["luma.oled>=3.13", "dbus-fast>=2.21"]
 # dev: --oled flag opens a window with the exact 128x64 rendering
 emu = ["luma.emulator>=1.5"]
+# dev: the test suite — uv run --extra test pytest
+test = ["pytest>=8.0"]
 
 [project.scripts]
 alabanza = "alabanza.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "device: needs real hardware (GPIO/OLED/BlueZ/audio); deselected off-device",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -8,6 +8,7 @@ and physical controls. Battery powered, fully portable.
 - **[docs/SPEC.md](docs/SPEC.md)** — what the device is; every design decision and why
 - **[docs/BUILD-PLAN.md](docs/BUILD-PLAN.md)** — how it gets built: phases, BOM, GPIO pin map, production run
 - **[docs/BLUETOOTH.md](docs/BLUETOOTH.md)** — Phase 2 design: BT architecture, screen flows, audio routing
+- **[docs/TESTING.md](docs/TESTING.md)** — what is tested where, from the laptop suite to per-unit acceptance
 
 ## Repo layout
 
@@ -62,6 +63,18 @@ The keyboard stands in for them:
 
 `↑`/`↓` change the speed while a hymn plays and browse the library when it
 doesn't; T9 title search lives in the menu.
+
+## Tests
+
+```sh
+cd app
+uv run --extra test pytest      # ~130 tests, 0.1s; hardware tests deselect themselves
+```
+
+Full strategy — including the on-device, endurance and per-unit tiers — in
+**[docs/TESTING.md](docs/TESTING.md)**.
+
+## Bluetooth on a laptop
 
 Bluetooth runs against a **fake backend** by default off-device — scripted
 speakers with realistic latencies, one that drops mid-hymn and one that never

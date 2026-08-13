@@ -59,7 +59,9 @@ class _Op:
 
 
 class FakeBackend:
-    def __init__(self, roster=ROSTER, paired=PREPAIRED, available: bool = True):
+    def __init__(self, roster=ROSTER, paired=PREPAIRED, available: bool = True,
+                 clock=time.monotonic):
+        self._now = clock
         self.roster = {f.mac: f for f in roster}
         self._paired: set[str] = set(paired)
         self._seen: set[str] = set()
@@ -78,7 +80,7 @@ class FakeBackend:
             if op.op in ("pair", "connect"):
                 self._paired.add(op.mac)
                 self._connected = op.mac
-                self._connected_since = time.monotonic()
+                self._connected_since = self._now()
             elif op.op == "disconnect":
                 self._connected = ""
             elif op.op == "forget":
@@ -91,7 +93,7 @@ class FakeBackend:
         self._op = None
 
     def _advance(self) -> None:
-        now = time.monotonic()
+        now = self._now()
         if self._scanning_since is not None:
             elapsed = now - self._scanning_since
             self._seen |= {f.mac for f in self.roster.values()
@@ -130,12 +132,12 @@ class FakeBackend:
     def scan(self, on: bool) -> None:
         if not self._available:
             return
-        self._scanning_since = time.monotonic() if on else None
+        self._scanning_since = self._now() if on else None
 
     def _start(self, op: str, mac: str, delay: float, ok: bool, error: str = "") -> None:
         if self._op or mac not in self.roster:
             return
-        now = time.monotonic()
+        now = self._now()
         self._op = _Op(op, mac, now, now + delay, ok, error)
 
     def pair(self, mac: str) -> None:

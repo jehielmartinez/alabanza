@@ -95,7 +95,12 @@ class _Reconnect:
 class App:
     def __init__(self, library_dir: Path, player: Player,
                  settings_path: Path | None = None,
-                 bt: BluetoothBackend | None = None):
+                 bt: BluetoothBackend | None = None,
+                 clock=time.monotonic):
+        # every deadline in here — message timeouts, the save debounce, scan
+        # and reconnect timers — reads this one clock, so tests can drive
+        # half-hour scenarios instantly instead of sleeping through them
+        self._now = clock
         self.library_dir = library_dir
         self.library: Library = scan(library_dir)
         self.player = player
@@ -134,23 +139,23 @@ class App:
     def _touch(self) -> None:
         """Mark settings changed; saved debounced in tick()."""
         self._dirty = True
-        self._last_change = time.monotonic()
+        self._last_change = self._now()
 
     def _save_if_due(self, force: bool = False) -> None:
         if not (self._dirty and self.settings_path):
             return
-        if force or time.monotonic() - self._last_change > SAVE_DEBOUNCE_S:
+        if force or self._now() - self._last_change > SAVE_DEBOUNCE_S:
             settings_mod.save(self.settings, self.settings_path)
             self._dirty = False
 
     # -- helpers -------------------------------------------------------
     def flash(self, text: str, seconds: float = 2.5) -> None:
         self._message = text
-        self._message_until = time.monotonic() + seconds
+        self._message_until = self._now() + seconds
 
     @property
     def message(self) -> str:
-        return self._message if time.monotonic() < self._message_until else ""
+        return self._message if self._now() < self._message_until else ""
 
     def _selected_number(self) -> int | None:
         if self.entry:
@@ -361,7 +366,7 @@ class App:
             self.flash("Detén el himno", 3)   # discovery breaks up A2DP
         else:
             self.bt.scan(True)
-            self._scan_until = time.monotonic() + SCAN_SECONDS
+            self._scan_until = self._now() + SCAN_SECONDS
 
     def _apply_output(self) -> None:
         """Point mpv at the sink for the selected output. Called when the
@@ -385,7 +390,7 @@ class App:
                          quiet: bool = False) -> None:
         if not mac or self._bt.busy_op:
             return
-        self._reconnect = _Reconnect(mac=mac, at=time.monotonic(), step=0,
+        self._reconnect = _Reconnect(mac=mac, at=self._now(), step=0,
                                      left=attempts, quiet=quiet)
 
     def _handle_bt_list(self, event: Event) -> None:
@@ -463,7 +468,7 @@ class App:
 
     def _bt_poll(self) -> None:
         """Diff the snapshot against last tick: results, losses, timeouts."""
-        now = time.monotonic()
+        now = self._now()
         prev, cur = self._bt, self.bt.state()
         self._bt = cur
 
@@ -619,7 +624,7 @@ class App:
         st = self._bt
         if not st.busy_op:
             return None
-        elapsed = int(max(0.0, time.monotonic() - st.busy_since))
+        elapsed = int(max(0.0, self._now() - st.busy_since))
         return ViewModel(
             state="alt", status_left="Bluetooth", status_right=f"{elapsed}s",
             lines=[f"{OP_LABELS.get(st.busy_op, '')}…",

@@ -63,12 +63,18 @@ def progress_bar(fraction: float, width: int = WIDTH) -> str:
     return "▕" + "█" * filled + "░" * (cells - filled) + "▏"
 
 
-def marquee(text: str, width: int = WIDTH, chars_per_sec: float = 4.0) -> str:
-    """Scroll text that doesn't fit; stationary when it does."""
+def marquee(text: str, width: int = WIDTH, chars_per_sec: float = 4.0,
+            now: float | None = None) -> str:
+    """Scroll text that doesn't fit; stationary when it does.
+
+    `now` is injectable so a screen can be rendered at a fixed instant —
+    otherwise pixel comparisons depend on when they ran.
+    """
     if len(text) <= width:
         return text
     loop = text + "  ·  "
-    offset = int(time.monotonic() * chars_per_sec) % len(loop)
+    now = time.monotonic() if now is None else now
+    offset = int(now * chars_per_sec) % len(loop)
     return (loop + loop)[offset: offset + width]
 
 

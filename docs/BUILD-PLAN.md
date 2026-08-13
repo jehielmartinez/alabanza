@@ -61,6 +61,7 @@ The app is a state machine around libmpv; none of it needs a Pi. Run it on the d
 - Hardware abstraction layer: `Input` and `Display` interfaces with `KeyboardInput`/`TerminalDisplay` implementations now, GPIO/OLED implementations in Phase 1
 
 **Exit criteria**: full hymn-selection-and-playback session driven from the keyboard, using a handful of sample MP4s.
+**Testing**: Tier 1 of [TESTING.md](TESTING.md) — the whole suite runs on a laptop in a tenth of a second.
 **Effort**: the bulk is Claude-driven; expect ~1 weekend of your time reviewing and steering.
 
 ### Phase 1 — Bench prototype (weekends 1–2 after parts arrive)
@@ -68,7 +69,7 @@ The app is a state machine around libmpv; none of it needs a Pi. Run it on the d
 Pi (400 for comfort, or the prototype Zero 2 W) + OLED + keypad + encoder + buttons on dupont wires/perfboard. No battery, no case.
 
 1. Flash Raspberry Pi OS Lite (64-bit), enable I2C, copy sample hymns
-2. Wire **one peripheral at a time**, each verified with a tiny standalone test script before moving on: OLED → keypad → encoder → buttons
+2. Wire **one peripheral at a time**, each verified before moving on: `pytest -m device` names the pin that is not wired (Tier 2 of [TESTING.md](TESTING.md)). OLED → keypad → encoder → D-pad
 3. Swap the Phase 0 keyboard/terminal implementations for GPIO/OLED ones
 4. Audio out through the headphone jack
 
@@ -114,7 +115,7 @@ The immutable-SD-card design makes replication nearly free on the software side:
 3. **Repeatable wiring**: for 10 units, replace free-hand point-to-point wiring with a small soldered protoboard "hat" (or a cheap custom PCB from JLCPCB-class fabs, ~$2/board) that the keypad ribbon, encoder, buttons, and OLED plug into. One evening of layout saves ten evenings of debugging mis-wired units.
 4. **Enclosure at quantity**: 3D printing wins at 10 units — print time is cheap, drilling identical boxes by hand ten times is not.
 5. **Assembly estimate**: after unit #1, expect ~2–3 hours per unit (solder hat, mount, flash, smoke-test).
-6. **Batch acceptance test**: every unit plays hymn 001 to HDMI + jack + a BT speaker, survives a power yank, and shows a sane battery gauge before it ships to a church.
+6. **Batch acceptance test**: the per-unit checklist in [TESTING.md](TESTING.md) — `pytest -m device`, hymn 001 to all three outputs, a power yank, a sane battery gauge, and a reboot that reconnects to the church's own speaker.
 
 ## Known risk areas (in order)
 
