@@ -100,9 +100,9 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 ## Power & robustness
 
 - **Battery powered and rechargeable — fully portable.** Target: **8+ hours of playback** unplugged (Zero 2 W averages ~2 W playing media → ~20 Wh needed, 2×18650 ≈ 25 Wh provides it).
-- **Integrated UPS board with 2×18650 cells** inside the enclosure: 5 V output, power-path charging (device fully usable while plugged in and charging), charges from a wall adapter.
-- The board's **I2C fuel gauge** feeds the app: battery percentage is always visible on the OLED status line; charging state shown when plugged in.
-- **Low battery**: warning on OLED at 15%, **safe automatic shutdown at ~5%** — the device never brownout-crashes mid-hymn.
+- **Integrated UPS board with 2×18650 cells** inside the enclosure: 5 V output, **true power-path charging** (device fully usable while plugged in and charging), charges from a wall adapter. Power-path is a hard requirement, not a nice-to-have — see decision 19; a plain Li-ion charger cannot provide it.
+- The board's **I2C fuel gauge** feeds the app: battery percentage is always visible on the OLED status line; charging state shown when plugged in. *(Product stage — deferred on the prototype, see decision 21.)*
+- **Low battery**: warning on OLED at 15%, **safe automatic shutdown at ~5%** — the device never brownout-crashes mid-hymn. *(Product stage — deferred on the prototype, see decision 21.)*
 - **Yank-safe by design**: root filesystem read-only (overlay mode). Settings (volumes, paired speakers, selected output) live on a tiny writable partition with rare, atomic writes.
 - Unplugging or hard power-off at any moment is **officially supported**. A menu Shutdown option also exists for the tidy-minded.
 
@@ -143,3 +143,39 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 15. **Battery hardware: integrated 18650 UPS board** with I2C fuel gauge — OLED battery %, 15% warning, safe shutdown at ~5%, charge-while-playing.
 16. **Production: 10 units on Pi Zero 2 WH** (supersedes decision 1's Pi 4). Justified by the real library being 480p H.264 (hardware-decoded by the Zero 2 W) and ~$50/unit savings across 10 units. Jack audio via USB DAC; battery re-specced to 2×18650 (~25 Wh) thanks to ~2 W draw. One unit is validated end-to-end before the batch order.
 17. **Microcontroller alternative considered and rejected.** An ESP32 + MP3-decoder build (~$65/unit, instant-on, weeks of battery) was evaluated; rejected because it drops HDMI lyrics video entirely and degrades Bluetooth reliability — both core features. Video output stays via the Zero 2 W's mini-HDMI (panel-mount mini-HDMI→HDMI extension on the enclosure, ~$7).
+
+18. **Single custom control PCB that is also the front panel** (supersedes the
+    protoboard-hat idea in BUILD-PLAN Phase 5). Keypad, D-pad, encoder and OLED
+    on the front; Pi Zero 2 WH socketed on the back and powered through the
+    header. Chosen because every control has to reach the panel anyway — a
+    Pi-stacked board would need ~22 hand-run wires per unit, which is the exact
+    thing the PCB exists to remove. Design and pre-fab checklist in
+    [HARDWARE.md](HARDWARE.md).
+19. **TP4056 charger evaluated and rejected as the power source.** Three modules
+    were bought before the gap was spotted: the TP4056 is a single-cell charger,
+    not a UPS. It provides no 5 V (outputs raw 2.5–4.2 V cell voltage), no load
+    sharing (so the device cannot run while charging — a stated requirement),
+    and no I2C fuel gauge (so no battery %, no 15% warning, no safe shutdown).
+    Building the missing pieces around it means a boost converter, an
+    ideal-diode load-share circuit and a separate MAX17048 — three chances to
+    get analogue design wrong on a board whose digital half is already
+    validated. Decision: buy an integrated UPS module meeting the requirements
+    in [HARDWARE.md](HARDWARE.md), and keep the TP4056s as bench cell chargers.
+20. **Prototype power: a PB0063A LiPo charger/boost module + LiPo battery, with
+    no battery gauge.** Deliberate scope reduction for the first board. A survey
+    found no module meeting all six power requirements at once — the Pi Zero
+    market offers ~1200 mAh handheld packs or large HATs for the Pi 4/5, and
+    every option assumes a free GPIO header, which decision 18 made false.
+    Rejected: PowerBoost 1000C (1 A ceiling, no gauge), Waveshare UPS HAT (C)
+    (HAT form factor, micro-USB), PiSugar S (~4.4 Wh ≈ 2 h, no I2C),
+    Pi-Ener-lite (~12 Wh, pogo pins, single-vendor supply), IP5306 modules (no
+    I2C of any kind). Gauging would have needed a second module (MAX17048 @
+    0x36), and it is the one function not required to prove the device works.
+21. **Battery percentage, the 15% warning and the 5% shutdown are product-stage
+    features, not prototype features** (narrows decision 15). The read-only root
+    filesystem already makes abrupt power loss a non-event (decision 10), so the
+    prototype runs until it stops. They return when the power block is
+    integrated onto the main board — where a single PMU IC (X-Powers AXP2101
+    class, as used in ClockworkPi's PicoCalc) provides charger, power path,
+    regulation and fuel gauge in one part. This is why no vendor sells the
+    all-in-one module: products design the PMU onto the mainboard.

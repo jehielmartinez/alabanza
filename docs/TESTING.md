@@ -112,7 +112,7 @@ Automation cannot answer these; a person and a stopwatch can.
 
 | Check | Pass condition |
 |---|---|
-| 8-hour battery run | plays continuously from full to the 5% shutdown, unplugged |
+| 8-hour battery run | plays continuously from full to the 5% shutdown, unplugged *(product stage — the prototype has no gauge, so it runs to cutoff and the duration is simply recorded)* |
 | Charge while playing | plays through a full charge cycle without a dropout |
 | Power yank ×20 | cut power at random moments; boots clean every time |
 | Boot to ready | ≤ 15 s, no console text and no rainbow splash on HDMI |
@@ -129,7 +129,7 @@ enough to actually get done ten times:
 
 1. `pytest -m device` — all green
 2. Hymn `001` plays to the jack, to a Bluetooth speaker, and to HDMI
-3. The OLED shows a sane battery percentage, and it falls under load
+3. The OLED shows a sane battery percentage, and it falls under load *(product stage only — no gauge on prototype units)*
 4. Power yanked mid-hymn, then boots clean
 5. Pair the church's own speaker; reboot; it reconnects by itself
 6. The laminated card matches what the device actually does

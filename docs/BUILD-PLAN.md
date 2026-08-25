@@ -12,20 +12,20 @@ Companion to [SPEC.md](SPEC.md). The spec says *what* the device is; this says *
 | 2 | USB audio adapter | USB-A DAC with 3.5mm out + micro-USB OTG adapter | ~$10 | The "headphone jack". Buy one known-good model, then 10 of the same |
 | 3 | mini-HDMI → HDMI | adapter or 1.5m cable | ~$5 | |
 | 4 | OLED display | 2.42" SSD1309, 128×64, **I2C version** | ~$14 | Many 2.42" modules ship SPI-configured; buy ones jumpered for I2C, or plan to move a resistor jumper |
-| 5 | Matrix keypad | 3×4, membrane or button type | ~$5 | 7-wire ribbon, plugs straight to GPIO |
-| 6 | Rotary encoder | EC11 with push switch, on breakout | ~$3 | KY-040 module is fine |
-| 7 | D-pad | 5× 12 mm tactile switches in a cross + centre | ~$4 | **Digital, not analog** — the Pi has no ADC, so a thumbstick would need an MCP3008. Discrete 12 mm switches laid out as a cross beat a miniature 5-way nav switch: same familiar geometry, but sized for older hands |
-| 8 | UPS board | 2×18650, 5 V out, power-path charging, I2C fuel gauge | ~$22 | Must confirm: charges while running, exposes battery % over I2C, GPIO passthrough |
-| 9 | 18650 cells | 2× quality 3400–3500 mAh (Samsung 35E / LG MJ1 class) | ~$10 | Reputable seller only — fake-capacity cells are rampant |
-| 10 | microSD card | 32 GB, A1 class, name brand | ~$8 | OS + app + 2.1 GB library |
-| 11 | Wall adapter | Per UPS board spec | ~$8 | The UPS board dictates this, not the Pi |
-| 12 | Enclosure + misc | box, wires, perfboard, screws | ~$20 | |
+| 5 | **Control PCB** | Custom 2-layer board — keypad, D-pad, encoder, OLED, Pi socket | ~$15 | Board + all switches, diodes, encoder, passives, connectors. Full BOM in [HARDWARE.md](HARDWARE.md). Replaces the separate keypad / encoder breakout / D-pad line items |
+| 6 | Power module | PB0063A LiPo charger/boost | TBD | Prototype choice; record its specs on arrival — see [HARDWARE.md](HARDWARE.md) |
+| 7 | LiPo battery | Capacity sets prototype runtime | TBD | The 8 h target is a product-stage goal; the prototype only has to run long enough to test |
+| 8 | microSD card | 32 GB, A1 class, name brand | ~$8 | OS + app + 2.1 GB library |
+| 9 | Wall adapter | Per the PB0063A's input spec | ~$8 | |
+| 10 | Enclosure + misc | box, screws, standoffs, panel hardware | ~$20 | No perfboard or hookup wire — the control PCB replaced both |
 
 Per-unit total ≈ **$120**. For the 10-unit batch, buy parts in bulk (AliExpress-class pricing drops most line items 20–40%) — but **only after one complete unit is validated end-to-end**.
 
 ## GPIO pin map (BCM numbering)
 
-Assumes the I2C display. I2C bus is shared by the OLED and the UPS fuel gauge (different addresses — typically 0x3C and 0x36).
+Assumes the I2C display. The prototype's only I2C device is the OLED (0x3C); **0x36 stays reserved** for the fuel gauge that returns at product stage ([SPEC.md](SPEC.md) decision 21), so nothing else may claim it.
+
+This map is the source of truth; [HARDWARE.md](HARDWARE.md) translates it to physical header pins.
 
 | Function | BCM pins |
 |---|---|
@@ -41,13 +41,13 @@ Assumes the I2C display. I2C bus is shared by the OLED and the UPS fuel gauge (d
 
 **17 pins used, 7 spare.** The 3×4 keypad and the D-pad freed up four lines versus the original 4×4-plus-seven-buttons plan, which leaves room if the display ends up SPI-only (10 MOSI, 11 SCLK, 8 CE0, plus two for DC/RST) — in that case ▲▼ move to 4 and 18.
 
-All buttons and keypad use internal pull-ups, switch to ground — no external resistors needed.
+All buttons and keypad use internal pull-ups, switch to ground — no external resistors needed. The one exception is the rotary encoder, whose A/B lines get an RC filter on the control PCB; see [HARDWARE.md](HARDWARE.md).
 
 ## Prototyping hardware: Pi 400 (on hand)
 
 A Pi 400 is available now and is a fine development stand-in — full 40-pin GPIO on the rear header, same Bluetooth/HDMI stack, same OS image as the Zero 2 W (Raspberry Pi OS images boot on both). Phases 0–2 run on it as-is, and its built-in keyboard means Phase 0 runs on real Pi hardware.
 
-Notes: the Pi 400 is much faster than the production Zero 2 W, so **performance must be re-validated on the real Zero 2 W** before the batch buy; jack audio uses the same USB DAC as production; the battery phase needs the Zero 2 W + UPS board.
+Notes: the Pi 400 is much faster than the production Zero 2 W, so **performance must be re-validated on the real Zero 2 W** before the batch buy; jack audio uses the same USB DAC as production; the battery phase needs the Zero 2 W + power block.
 
 ## Phases
 
@@ -89,12 +89,11 @@ Pi (400 for comfort, or the prototype Zero 2 W) + OLED + keypad + encoder + butt
 
 ### Phase 3 — Battery (1 weekend)
 
-- Mount Pi on UPS board, install cells
-- Read fuel gauge over I2C → battery % + charging state on OLED status line
-- 15% low-battery warning; safe automatic shutdown at ~5%
-- **Validation**: one real 8-hour continuous-playback run on battery, and one full charge-while-playing session
+- Wire the PB0063A to the control PCB (5 V + GND) and connect the LiPo
+- *(Deferred to product stage — no gauge on the prototype: battery %, the 15% warning and the 5% shutdown all come back with the integrated power block. See [SPEC.md](SPEC.md) decision 21.)*
+- **Validation**: a continuous-playback run on battery (the 8-hour target is product-stage; the prototype measures what it actually achieves), and one charge-while-playing session
 
-**Exit criteria**: the 8-hour run completes; pulling the wall adapter mid-hymn is a non-event.
+**Exit criteria**: the device runs untethered for a measured, recorded duration; pulling the wall adapter mid-hymn is a non-event.
 
 ### Phase 4 — Hardening + enclosure (1–3 weeks, elastic)
 
@@ -112,7 +111,7 @@ The immutable-SD-card design makes replication nearly free on the software side:
 
 1. **Golden image**: once unit #1 passes Phase 4, its SD card *is* the product. `dd` it to an image file; flashing 10 cards is an afternoon. Per-device settings (paired speakers, volumes) live on the writable partition and start factory-fresh on each clone.
 2. **Validate one, then buy nine**: the single prototype Zero 2 W must pass real-service testing (video via HDMI, Bluetooth to the church's speaker, USB-DAC audio, full 8h battery run) before the batch order.
-3. **Repeatable wiring**: for 10 units, replace free-hand point-to-point wiring with a small soldered protoboard "hat" (or a cheap custom PCB from JLCPCB-class fabs, ~$2/board) that the keypad ribbon, encoder, buttons, and OLED plug into. One evening of layout saves ten evenings of debugging mis-wired units.
+3. **Custom control PCB**: a single board that *is* the front panel — keypad, D-pad, encoder and OLED on the front, Pi socketed on the back. Designed in KiCad, ~$2/board from a JLCPCB-class fab. Per-unit assembly becomes "press the Pi on, screw the board down" instead of ~22 hand-run panel wires. Design, rationale and pre-fab checklist: **[HARDWARE.md](HARDWARE.md)**.
 4. **Enclosure at quantity**: 3D printing wins at 10 units — print time is cheap, drilling identical boxes by hand ten times is not.
 5. **Assembly estimate**: after unit #1, expect ~2–3 hours per unit (solder hat, mount, flash, smoke-test).
 6. **Batch acceptance test**: the per-unit checklist in [TESTING.md](TESTING.md) — `pytest -m device`, hymn 001 to all three outputs, a power yank, a sane battery gauge, and a reboot that reconnects to the church's own speaker.
@@ -121,12 +120,13 @@ The immutable-SD-card design makes replication nearly free on the software side:
 
 1. **Bluetooth audio (Phase 2)** — BlueZ pairing/reconnect quirks. Mitigation: test with the church's actual speaker early; keep the jack as the always-works fallback.
 2. **Clean HDMI boot (Phase 2)** — hiding every trace of Linux takes a few config iterations (`disable_splash`, quiet cmdline, custom splash service).
-3. **UPS board choice (Phase 3)** — boards vary in quality and I2C support. Confirm fuel-gauge readability and charge-while-running before buying; read recent reviews.
-4. **Enclosure (Phase 4)** — always takes longer than the electronics. Keep v1 ugly and functional.
+3. **Power module behaviour (Phase 3)** — no single board on the market meets all six power requirements, which is why the prototype uses a PB0063A and defers gauging entirely ([HARDWARE.md](HARDWARE.md)). The residual risks are behavioural, not electrical: does the module auto-start on load without a button press, and does it run while charging? Both are cheap to test, and both must be answered before a product board is designed around it.
+4. **PCB respin (Phase 5)** — a mis-mirrored Pi socket or a switch placed under the wrong key legend is invisible until the boards arrive. Work the pre-fab checklist in [HARDWARE.md](HARDWARE.md); it is an hour against a two-week fab turnaround.
+5. **Enclosure (Phase 4)** — always takes longer than the electronics. Keep v1 ugly and functional.
 
 ## Open questions carried from SPEC.md
 
 1. Source file naming → resolved during Phase 4 library load (rename/manifest script).
 2. Factory-default output → decide in Phase 2; jack is the provisional default.
 3. Enclosure design → Phase 4.
-4. Charger spec → dictated by whichever UPS board is bought (Phase 3 purchase, but order with the initial batch to save shipping).
+4. Charger spec → dictated by the PB0063A's input; record it when the part arrives.

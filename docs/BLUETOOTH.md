@@ -412,6 +412,8 @@ menu; reboot and have it reconnect by itself.
 1. **[?]** PipeWire vs. bluez-alsa on the Zero 2 W — decide by measuring CPU
    and boot time on real hardware. Blocks build step 5 only; steps 1–4 and 6
    are unaffected.
-2. Does the church's speaker auto-power-off when idle? If so, boot
-   auto-reconnect will routinely fail through no fault of ours, and the
-   `BT: no conectado` copy should hint at turning the speaker on.
+
+Closed: whether `BT: no conectado` should hint at switching the speaker on, in
+case the church's own powers itself off when idle. It stays as it is — the
+message says what is true, and the operator's next move is the Bluetooth screen
+either way.

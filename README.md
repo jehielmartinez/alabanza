@@ -7,6 +7,7 @@ and physical controls. Battery powered, fully portable.
 
 - **[docs/SPEC.md](docs/SPEC.md)** — what the device is; every design decision and why
 - **[docs/BUILD-PLAN.md](docs/BUILD-PLAN.md)** — how it gets built: phases, BOM, GPIO pin map, production run
+- **[docs/HARDWARE.md](docs/HARDWARE.md)** — the custom control PCB: schematic blocks, layout rules, pre-fab checklist
 - **[docs/BLUETOOTH.md](docs/BLUETOOTH.md)** — Phase 2 design: BT architecture, screen flows, audio routing
 - **[docs/TESTING.md](docs/TESTING.md)** — what is tested where, from the laptop suite to per-unit acceptance
 
