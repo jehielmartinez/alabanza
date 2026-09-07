@@ -6,11 +6,11 @@ A Raspberry Pi–based media appliance whose sole purpose is playing hymns at a 
 
 ## Hardware
 
-Production target: **10 units**, cost-optimized. The library turned out to be 480p H.264 (2.1 GB total), which the Pi Zero 2 W hardware-decodes — the original Pi 4 choice is no longer necessary.
+Production target: **10 units**, cost-optimized. The library turned out to be 720p H.264 (2.2 GB total), which the Pi Zero 2 W hardware-decodes — the original Pi 4 choice is no longer necessary. Measured with `ffprobe` across the real files: every clip is 720 high, widths vary with aspect ratio (1152, 1280, 960, 1168), audio is AAC 128 kbps 44.1 kHz throughout.
 
 | Part | Choice | Why |
 |---|---|---|
-| Computer | Raspberry Pi Zero 2 WH | $15; decodes the 480p H.264 library in hardware; built-in Bluetooth; ~2 W draw halves the battery. WH = pre-soldered header |
+| Computer | Raspberry Pi Zero 2 WH | $15; decodes the 720p H.264 library in hardware; built-in Bluetooth; ~2 W draw halves the battery. WH = pre-soldered header |
 | Audio out (jack) | USB audio adapter + micro-USB OTG adapter | Zero 2 W has no analog jack; a USB DAC (~$8) is cleaner than the Pi 4's analog out anyway |
 | Video out | mini-HDMI → HDMI adapter | Zero 2 W uses mini-HDMI |
 | Display | 2.42" SSD1309 OLED, 128×64 | Readable at a glance in a dim room, including for older eyes; same driver family as smaller modules |
@@ -141,7 +141,7 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 13. **Stack: Pi OS Lite + Python 3 + libmpv; luma.oled, gpiozero, BlueZ/D-Bus.**
 14. **Battery scenario: fully portable, 8h+ playback** — runs unplugged as the norm (e.g. services away from an outlet), not just outage-bridging.
 15. **Battery hardware: integrated 18650 UPS board** with I2C fuel gauge — OLED battery %, 15% warning, safe shutdown at ~5%, charge-while-playing.
-16. **Production: 10 units on Pi Zero 2 WH** (supersedes decision 1's Pi 4). Justified by the real library being 480p H.264 (hardware-decoded by the Zero 2 W) and ~$50/unit savings across 10 units. Jack audio via USB DAC; battery re-specced to 2×18650 (~25 Wh) thanks to ~2 W draw. One unit is validated end-to-end before the batch order.
+16. **Production: 10 units on Pi Zero 2 WH** (supersedes decision 1's Pi 4). Justified by the real library being 720p H.264 — well inside the Zero 2 W's 1080p30 hardware decoder (earlier drafts of this document said 480p; `ffprobe` on the provisioned files says 720p, and the conclusion is unchanged) — and ~$50/unit savings across 10 units. Jack audio via USB DAC; battery re-specced to 2×18650 (~25 Wh) thanks to ~2 W draw. One unit is validated end-to-end before the batch order.
 17. **Microcontroller alternative considered and rejected.** An ESP32 + MP3-decoder build (~$65/unit, instant-on, weeks of battery) was evaluated; rejected because it drops HDMI lyrics video entirely and degrades Bluetooth reliability — both core features. Video output stays via the Zero 2 W's mini-HDMI (panel-mount mini-HDMI→HDMI extension on the enclosure, ~$7).
 
 18. **Single custom control PCB that is also the front panel** (supersedes the

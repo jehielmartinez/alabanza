@@ -8,7 +8,7 @@ Companion to [SPEC.md](SPEC.md). The spec says *what* the device is; this says *
 
 | # | Part | Spec | Est. price | Notes |
 |---|------|------|-----------|-------|
-| 1 | Raspberry Pi Zero 2 **WH** | pre-soldered header | ~$18 | Hardware-decodes the 480p H.264 library. WH saves soldering 40 pins ×10 units |
+| 1 | Raspberry Pi Zero 2 **WH** | pre-soldered header | ~$18 | Hardware-decodes the 720p H.264 library. WH saves soldering 40 pins ×10 units |
 | 2 | USB audio adapter | USB-A DAC with 3.5mm out + micro-USB OTG adapter | ~$10 | The "headphone jack". Buy one known-good model, then 10 of the same |
 | 3 | mini-HDMI → HDMI | adapter or 1.5m cable | ~$5 | |
 | 4 | OLED display | 2.42" SSD1309, 128×64, **I2C version** | ~$14 | Many 2.42" modules ship SPI-configured; buy ones jumpered for I2C, or plan to move a resistor jumper |
@@ -62,7 +62,7 @@ layer are written once and carry over. Jack audio uses the same USB DAC as
 production.
 
 **A Pi 500 is also on hand and is deliberately not used for this.** It is a Pi
-5–class BCM2712, which *dropped the hardware H.264 decoder* — it plays the 480p
+5–class BCM2712, which *dropped the hardware H.264 decoder* — it plays the 720p
 library in software — and moves GPIO behind the RP1 southbridge, where
 `RPi.GPIO` and `pigpio` do not work at all and `gpiozero` needs ≥2.0.1.post3 for
 the `gpiochip4`→`gpiochip0` renumbering. Both differences point away from the
