@@ -53,6 +53,7 @@ BOUNCE = 0.02        # software debounce, both for gpiozero and the matrix
 SEEK_REPEAT = 0.4    # held ◀/▶ repeats at this interval (SPEC: "held = repeat")
 _SETTLE = 50e-6      # let a driven row settle before reading the columns
 SCAN_HZ = 50         # keypad samples per second, on its own thread
+HELD_REPEAT = 0.25   # how often a held encoder push re-announces itself
 
 
 class _Matrix:
@@ -136,7 +137,8 @@ class GpioInput:
         self._button(DPAD_CENTRE, Kind.PLAY_PAUSE)
         self._button(DPAD_UP, Kind.UP)
         self._button(DPAD_DOWN, Kind.DOWN)
-        self._button(ENCODER_PUSH, Kind.PUSH)
+        self._button(ENCODER_PUSH, Kind.PUSH, release=Kind.PUSH_RELEASE,
+                     held=Kind.PUSH_HELD)
         # Seek is the one control the spec asks to repeat while held.
         self._button(DPAD_LEFT, Kind.SEEK_BACK, repeat=True)
         self._button(DPAD_RIGHT, Kind.SEEK_FWD, repeat=True)
@@ -171,12 +173,26 @@ class GpioInput:
             self._queue.append(Event(kind))
         return push
 
-    def _button(self, pin: int, kind: Kind, repeat: bool = False) -> None:
+    def _button(self, pin: int, kind: Kind, repeat: bool = False,
+                release: Kind | None = None, held: Kind | None = None) -> None:
+        # `held` reports *that* the key is still down, repeatedly; the app
+        # decides what a long hold means, because it owns the injected clock
+        # and timing here would put the logic on the one thread the test
+        # suite cannot drive. It is a keepalive rather than a cancel signal
+        # on purpose: a backend that cannot report holding simply stops
+        # sending, and the app gives up on its own. Waiting for a release
+        # that never comes would leave the keyboard backend one keypress and
+        # three seconds away from powering off the device.
         button = Button(pin, pull_up=True, bounce_time=BOUNCE,
-                        hold_time=SEEK_REPEAT, hold_repeat=repeat)
+                        hold_time=HELD_REPEAT if held else SEEK_REPEAT,
+                        hold_repeat=bool(repeat or held))
         button.when_pressed = self._emit(kind)
         if repeat:
             button.when_held = self._emit(kind)
+        elif held is not None:
+            button.when_held = self._emit(held)
+        if release is not None:
+            button.when_released = self._emit(release)
         self._buttons.append(button)
 
     def poll(self) -> list[Event]:

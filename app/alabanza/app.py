@@ -45,6 +45,13 @@ class Mode(Enum):
 SAVE_DEBOUNCE_S = 2.0
 LIST_ROWS = 4          # what the real OLED fits
 HINT_ROWS = 3          # ...minus one on any screen that shows a hint, because
+
+# Holding the encoder push powers the device off. Long enough that it cannot
+# happen in a pocket or by leaning on the panel, short enough that a volunteer
+# following "hold the knob" does not give up first.
+SHUTDOWN_HOLD = 3.0
+SHUTDOWN_HINT = 0.6      # stay silent below this, so a normal press is quiet
+HOLD_STALE = 0.6         # no keepalive for this long means it is not held
                        # the hint is drawn over the fourth row
 MSG_CHARS = 21         # what one flash message fits at 128 px
 
@@ -115,6 +122,9 @@ class App:
         self.search_pos = 0
         self.now_playing = None    # Hymn | None
         self.quit_requested = False
+        self.shutdown_requested = False   # quit, and then power the Pi off
+        self._push_since: float | None = None
+        self._push_seen = 0.0
         self._message = ""
         self._message_until = 0.0
         self._dirty = False
@@ -149,6 +159,35 @@ class App:
             self._dirty = False
 
     # -- helpers -------------------------------------------------------
+    def _hold_shutdown(self) -> str:
+        """Progress of a held encoder push, as the line to show — "" if none.
+
+        Shutdown is the one function behind a long press, and SPEC's "no
+        chords, no long-presses, nothing hidden" is broken here on purpose:
+        every other control should be instant, and this one must be hard to
+        do by accident. Holding is also self-cancelling in a way a menu item
+        is not — let go and nothing happened.
+
+        Timed here rather than in the input layer because this class owns the
+        injected clock, so the whole interaction is testable off-device.
+        """
+        if self._push_since is None:
+            return ""
+        now = self._now()
+        if now - self._push_seen > HOLD_STALE:
+            # No keepalive lately: released, or an input backend that cannot
+            # report holding at all. Either way this is not a hold.
+            self._push_since = None
+            return ""
+        held = now - self._push_since
+        if held < SHUTDOWN_HINT:
+            return ""
+        if held >= SHUTDOWN_HOLD:
+            self.shutdown_requested = True
+            self.quit_requested = True
+            return "Apagando..."
+        return f"Sigue pulsando {SHUTDOWN_HOLD - held:.0f}s"
+
     def flash(self, text: str, seconds: float = 2.5) -> None:
         self._message = text
         self._message_until = self._now() + seconds
@@ -188,6 +227,19 @@ class App:
 
     # -- event handling ------------------------------------------------
     def handle(self, event: Event) -> None:
+        # The push's own timing is tracked before anything else looks at it,
+        # so a hold counts the same in every screen. PUSH keeps doing what it
+        # always did on the way down -- open the menu, select a row -- and the
+        # hold is a second meaning layered on top, not a replacement.
+        if event.kind is Kind.PUSH:
+            self._push_since = self._push_seen = self._now()
+        elif event.kind is Kind.PUSH_HELD:
+            self._push_seen = self._now()
+            return
+        elif event.kind is Kind.PUSH_RELEASE:
+            self._push_since = None
+            return
+
         if event.kind is Kind.QUIT:
             self._save_if_due(force=True)
             self.quit_requested = True
@@ -316,7 +368,7 @@ class App:
             "Bluetooth",
             "Buscar por titulo",
             "Reescanear biblioteca",
-            "Salir",
+            "Apagar",
         ]
 
     def _handle_menu(self, event: Event) -> None:
@@ -346,8 +398,9 @@ class App:
             elif self.menu_pos == 3:    # rescan
                 self.handle(Event(Kind.RESCAN))
                 self.mode = Mode.SELECT
-            else:                       # quit
+            else:                       # apagar
                 self._save_if_due(force=True)
+                self.shutdown_requested = True
                 self.quit_requested = True
 
     # -- bluetooth -----------------------------------------------------
@@ -576,6 +629,9 @@ class App:
 
     # -- view ----------------------------------------------------------
     def tick(self) -> ViewModel:
+        holding = self._hold_shutdown()
+        if holding:
+            self.flash(holding, 0.2)     # short, so it clears the moment you let go
         self._bt_poll()
         self._save_if_due()
         if self.now_playing and not self.player.active:

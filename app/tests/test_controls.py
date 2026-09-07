@@ -280,3 +280,63 @@ class TestThePanelReturnsToTheStart:
         rig.type_number(17)
         rig.press(Kind.STAR)
         assert rig.app.entry == "1"
+
+
+class TestHoldingTheKnobPowersOff:
+    """The one function behind a long press, and deliberately so: SPEC's
+    "no chords, no long-presses, nothing hidden" is broken here because
+    shutdown is the single action that must be hard to do by accident."""
+
+    def _hold(self, rig, seconds):
+        rig.press(Kind.PUSH)
+        for _ in range(int(seconds / 0.2)):
+            rig.advance(0.2)
+            rig.press(Kind.PUSH_HELD)
+            rig.app.tick()
+
+    def test_holding_powers_off(self, harness):
+        rig = harness()
+        self._hold(rig, 3.4)
+        assert rig.app.shutdown_requested
+        assert rig.app.quit_requested
+
+    def test_a_short_hold_only_opens_the_menu(self, harness):
+        rig = harness()
+        self._hold(rig, 1.0)
+        rig.press(Kind.PUSH_RELEASE)
+        rig.app.tick()
+        assert not rig.app.shutdown_requested
+        assert rig.app.mode is Mode.MENU
+
+    def test_it_warns_before_it_acts(self, harness):
+        """A silent three-second wait would look like a dead knob; the panel
+        has to say what is about to happen while there is still time to let
+        go."""
+        rig = harness()
+        self._hold(rig, 1.4)
+        assert "sigue" in rig.app.tick().hint.lower()
+        assert not rig.app.shutdown_requested
+
+    def test_a_press_with_no_keepalive_never_powers_off(self, harness):
+        """The failure this design exists to prevent. The keyboard backend
+        emits PUSH and nothing else, so a hold that waits for a release event
+        would leave a dev machine one keypress and three seconds away from
+        powering off the device."""
+        rig = harness()
+        rig.press(Kind.PUSH)          # press, then no keepalive at all
+        rig.advance(10.0)
+        rig.app.tick()
+        assert not rig.app.shutdown_requested
+
+    def test_the_menu_offers_it_too(self, harness):
+        """Not everyone will discover a hold, and SPEC decision 10 asks for a
+        menu Shutdown outright."""
+        rig = harness()
+        rig.press(Kind.PUSH)
+        rig.press(Kind.PUSH_RELEASE)
+        assert rig.app.mode is Mode.MENU
+        for _ in range(4):
+            rig.press(Kind.DOWN)
+        assert "Apagar" in rig.app.tick().lines[-1]
+        rig.press(Kind.CONFIRM)
+        assert rig.app.shutdown_requested

@@ -27,6 +27,8 @@ class Kind(Enum):
     WHEEL_CW = auto()     # encoder clockwise — volume up, list down
     WHEEL_CCW = auto()    # encoder counter-clockwise
     PUSH = auto()         # encoder push — menu / select
+    PUSH_HELD = auto()    # encoder push still down — repeats while it is
+    PUSH_RELEASE = auto() # encoder push let go
     RESCAN = auto()       # dev convenience: rescan library
     QUIT = auto()         # dev convenience: exit app
 
