@@ -246,3 +246,37 @@ class TestAFrameSurvivesTheHymnEnding:
             rig.app.tick()          # must not raise ZeroDivisionError
         finally:
             del type(rig.player).duration
+
+
+class TestThePanelReturnsToTheStart:
+    """After a hymn, the panel has to invite the next number rather than keep
+    naming the last one. The number shown when idle comes from `browse`, not
+    from `entry`, which is why clearing the typed digits was not enough."""
+
+    def test_a_finished_hymn_leaves_the_panel_ready_for_the_next(self, harness):
+        rig = harness()
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        rig.player.finish()
+        vm = rig.app.tick()
+        assert "005" not in vm.title, f"still naming the last hymn: {vm.title!r}"
+        assert vm.title == "Himno: ---"
+
+    def test_star_clears_the_hymn_left_on_screen(self, harness):
+        """* means "clear what is going on". With nothing typed and nothing
+        playing there was nothing left for it to clear, so pressing it did
+        visibly nothing while a hymn number sat on the panel."""
+        rig = harness()
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        rig.press(Kind.STAR)          # stops the hymn
+        assert "005" in rig.app.tick().title
+        rig.press(Kind.STAR)          # ...and now clears the panel
+        assert rig.app.tick().title == "Himno: ---"
+
+    def test_star_still_erases_digits_first(self, harness):
+        """The order matters: digits, then playback, then the panel."""
+        rig = harness()
+        rig.type_number(17)
+        rig.press(Kind.STAR)
+        assert rig.app.entry == "1"

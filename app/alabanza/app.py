@@ -247,6 +247,12 @@ class App:
             elif self.player.active:
                 self.player.stop()
                 self.now_playing = None
+            else:
+                # Nothing typed and nothing playing: clear the hymn still
+                # named on screen. Without this the last hymn played stays
+                # on the panel and * appears to do nothing, because the
+                # number shown comes from `browse` rather than from `entry`.
+                self.browse = 0
         elif k is Kind.CONFIRM:
             self._play_selected()
         elif k is Kind.PLAY_PAUSE:
@@ -574,7 +580,8 @@ class App:
         self._save_if_due()
         if self.now_playing and not self.player.active:
             self.now_playing = None       # hymn finished on its own
-            self.player.show_idle()       # ...and HDMI goes back to the image
+            self.browse = 0               # ...panel back to "teclea un numero"
+            self.player.show_idle()       # ...and HDMI back to the image
 
         if self.mode is Mode.SEARCH:
             return self._view_search()
