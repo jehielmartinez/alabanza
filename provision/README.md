@@ -101,6 +101,13 @@ Three of the steps are not obvious, and each one cost an evening to find:
   UUID, so `bluetoothctl` reports a perfectly healthy connection while no sink
   ever appears in PipeWire and `Salida = Bluetooth` has nowhere to go.
 
+- **SBC-XQ is preferred over plain SBC.** BlueZ negotiates ordinary SBC by
+  default even when the speaker offers the higher-bitpool XQ variant, so
+  without this every unit runs quieter and duller than the hardware allows —
+  ~328 kbps where ~450 was available. Audibly better on choir and cymbals,
+  which is most of this library. A speaker that does not offer XQ falls back
+  to SBC by itself, so the preference is safe everywhere.
+
 - **The verify step opens the GPIO chip**, rather than just importing
   `gpiozero`. Importing proves nothing; the failure above is invisible to it.
 

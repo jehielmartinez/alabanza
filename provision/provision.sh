@@ -203,6 +203,23 @@ wireplumber.profiles = {
 WPCONF
 ok "WirePlumber seat-monitoring disabled — Bluetooth audio can start headless"
 
+# Prefer SBC-XQ over plain SBC. Both are SBC; XQ simply uses a much higher
+# bitpool (~450 kbps against ~328) and is audibly better on choir and cymbals,
+# which is most of the library. BlueZ negotiates plain SBC by default even
+# when the speaker offers XQ, so without this every unit quietly runs at the
+# lower quality. Verified by ear on the bench speaker.
+#
+# The list is ordered: a speaker that does not offer XQ falls back to SBC on
+# its own, so this is safe for whatever the church actually owns.
+sudo tee /etc/wireplumber/wireplumber.conf.d/51-alabanza-bluetooth-codec.conf >/dev/null <<'WPCODEC'
+# Alabanza: prefer the higher-bitpool SBC variant -- see provision/README.md.
+monitor.bluez.properties = {
+  bluez5.enable-sbc-xq = true
+  bluez5.codecs = [ sbc_xq sbc aac ]
+}
+WPCODEC
+ok "Bluetooth codec preference: SBC-XQ before SBC"
+
 # Installing SPA plugins does not make a running PipeWire notice them, so the
 # stack is restarted after packages, not before.
 systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true
