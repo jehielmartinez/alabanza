@@ -103,6 +103,7 @@ def _video_options() -> dict:
 
 class Player:
     def __init__(self, video: bool = True, idle_images: list[Path] | None = None):
+        self._video = video
         self._idle_images = _idle_images() if idle_images is None else idle_images
         self._idle_shown: Path | None = None
         self._idle_queue: list[Path] = []
@@ -112,7 +113,14 @@ class Player:
             vid="auto" if video else "no",
             osc=False,
             force_window=False,
-            keep_open=False,
+            # Hold the last frame at the end instead of unloading. Unloading
+            # releases DRM, so the Linux console appeared on the projector for
+            # the tick between a hymn ending and the idle image loading. With
+            # keep-open the final frame stays up and the image loads over it,
+            # and the end is detected by eof-reached instead of by the file
+            # disappearing. SPEC decision 8: the projector shows the video,
+            # the image, or a freeze-frame, and never anything else.
+            keep_open=True,
             log_handler=None,
             **(_video_options() if video else {}),
         )
@@ -147,6 +155,8 @@ class Player:
         the same two all morning. Reshuffled when exhausted, never starting on
         the one still on screen.
         """
+        if not self._video:
+            return                      # audio-only: there is nothing to show
         pool = [p for p in self._idle_images if p.exists()]
         if not pool:
             return
@@ -166,9 +176,13 @@ class Player:
             self._mpv.pause = not self._mpv.pause
 
     def stop(self) -> None:
+        # Load the image straight over the hymn rather than stopping first.
+        # mpv.stop() would unload, and an unloaded mpv shows the console.
         self._starting_until = 0.0
-        self._mpv.stop()
-        self.show_idle()
+        if self._video and self._idle_images:
+            self.show_idle()
+        else:
+            self._mpv.stop()
 
     def shutdown(self) -> None:
         self._mpv.terminate()
@@ -196,7 +210,10 @@ class Player:
             return False
         if self._mpv.filename is not None:
             self._starting_until = 0.0
-            return True
+            # keep-open holds the last frame rather than unloading, so a
+            # finished hymn still has a filename. eof-reached is what says
+            # it is over.
+            return not self._mpv.eof_reached
         return time.monotonic() < self._starting_until
 
     @property
