@@ -25,6 +25,12 @@ Per-unit total ≈ **$120**. For the 10-unit batch, buy parts in bulk (AliExpres
 
 Assumes the I2C display. The prototype's only I2C device is the OLED (0x3C); **0x36 stays reserved** for the fuel gauge that returns at product stage ([SPEC.md](SPEC.md) decision 21), so nothing else may claim it.
 
+**This table is documentation of `app/alabanza/pins.py`, not a second copy of
+it.** The module is what the code uses, and `app/tests/test_pins.py` fails if
+the two stop agreeing — it parses the table below and compares. Change either
+one and the suite tells you about the other, which is the only reason it is
+safe to write a pin map down twice.
+
 This map is the source of truth; [HARDWARE.md](HARDWARE.md) translates it to physical header pins.
 
 | Function | BCM pins |

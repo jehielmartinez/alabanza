@@ -30,14 +30,18 @@ from collections import deque
 from gpiozero import Button, DigitalInputDevice, OutputDevice, RotaryEncoder
 
 from .events import Event, Kind
-
-# --- pin map (BCM) — docs/BUILD-PLAN.md ------------------------------------
-KEYPAD_ROWS = (5, 6, 13, 19)
-KEYPAD_COLS = (12, 16, 20)
-ENCODER_A, ENCODER_B, ENCODER_PUSH = 17, 27, 22
-DPAD_CENTRE = 23
-DPAD_LEFT, DPAD_RIGHT = 25, 26
-DPAD_UP, DPAD_DOWN = 7, 8
+from .pins import (
+    DPAD_CENTRE,
+    DPAD_DOWN,
+    DPAD_LEFT,
+    DPAD_RIGHT,
+    DPAD_UP,
+    ENCODER_A,
+    ENCODER_B,
+    ENCODER_PUSH,
+    KEYPAD_COLS,
+    KEYPAD_ROWS,
+)
 
 # The 3x4 legend, in scan order. Row 3 is `* 0 #` — matches the Value fields
 # HARDWARE.md layout rule 2 requires on the switches, so a key that reports

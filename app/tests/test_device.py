@@ -42,18 +42,11 @@ class TestTheDisplay:
 class TestTheControls:
     """Wire one at a time and re-run; each failure names what is not wired."""
 
-    PINS = {
-        "keypad rows": (5, 6, 13, 19),
-        "keypad columns": (12, 16, 20),
-        "encoder A/B/push": (17, 27, 22),
-        "d-pad centre": (23,),
-        "d-pad left/right": (25, 26),
-        "d-pad up/down": (7, 8),
-    }
-
     def test_every_pin_in_the_map_can_be_claimed(self):
         from gpiozero import Button
-        for name, pins in self.PINS.items():
+
+        from alabanza.pins import CONTROLS
+        for name, pins in CONTROLS.items():
             for pin in pins:
                 try:
                     Button(pin, pull_up=True).close()
