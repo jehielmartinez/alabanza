@@ -241,6 +241,46 @@ cd "$APP"
 "$UV" sync --extra test --extra device --quiet
 ok "venv ready at app/.venv"
 
+# --- 4b. autostart and shutdown -------------------------------------------
+
+step "Installing the service"
+
+# The app runs as a user service, not a system one. It needs the user's
+# PipeWire session for audio, and a system service would have none -- the same
+# session that `loginctl enable-linger` above keeps alive without a login.
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/alabanza.service" <<UNIT
+[Unit]
+Description=Alabanza hymn player
+After=pipewire.service bluetooth.target
+Wants=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=$APP
+ExecStart=$UV run --no-sync --extra device alabanza --gpio --oled-device --bt real
+Restart=always
+RestartSec=3
+# The panel is the only interface; nothing should reach the console, which
+# under SPEC decision 8 is a projector.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload
+ok "alabanza.service written (not enabled — see below)"
+
+# Powering off from the menu, or by holding the encoder. The app is not root,
+# so it needs exactly one command and nothing else. Narrow on purpose: this
+# file is the whole privilege the appliance is given.
+sudo tee /etc/sudoers.d/alabanza-poweroff >/dev/null <<SUDOERS
+$USER ALL=(root) NOPASSWD: /sbin/poweroff
+SUDOERS
+sudo chmod 440 /etc/sudoers.d/alabanza-poweroff
+ok "poweroff permitted for $USER (that command only)"
+
 # --- 5. verify ------------------------------------------------------------
 
 step "Verifying"
@@ -296,6 +336,14 @@ if [ "$FAILED" != "0" ]; then
 fi
 
 cat <<'NEXT'
+
+    Autostart is installed but NOT enabled, because it takes the GPIO and
+    the panel — which makes bench testing by hand impossible. Turn it on
+    when the unit is ready to be an appliance:
+
+      systemctl --user enable --now alabanza     # start at boot
+      systemctl --user disable --now alabanza    # back to running it by hand
+      journalctl --user -u alabanza -f           # watch it
 
     Next:
       cd app
