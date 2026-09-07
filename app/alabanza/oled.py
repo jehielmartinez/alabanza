@@ -218,6 +218,22 @@ class OledDisplay:
 
             device = ssd1309(i2c(port=1, address=0x3C))
         self.device = device
+        self._last: bytes | None = None
 
     def render(self, vm: ViewModel) -> None:
-        self.device.display(render(vm).convert(self.device.mode))
+        # Pushing 1 KB over I2C costs ~96 ms at 100 kHz, and the app renders
+        # every 50 ms tick — so an unconditional write pins the whole loop at
+        # about 6 Hz. The keypad is scanned in that same loop, and a press
+        # shorter than one iteration is simply never seen: the panel makes the
+        # buttons feel broken.
+        #
+        # Drawing costs 1.3 ms, so draw always and compare the pixels: the
+        # write only happens when the panel would actually change. Comparing
+        # the rendered image rather than the ViewModel keeps the title marquee
+        # scrolling, since that animates on the clock with the model unchanged.
+        image = render(vm).convert(self.device.mode)
+        data = image.tobytes()
+        if data == self._last:
+            return
+        self._last = data
+        self.device.display(image)

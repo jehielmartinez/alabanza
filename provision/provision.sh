@@ -65,6 +65,18 @@ else
     ok "I2C enabled"
 fi
 
+# I2C at 400 kHz rather than the 100 kHz default. The OLED is 1 KB per frame,
+# which is ~96 ms at 100 kHz -- and the app renders in the same loop that scans
+# the keypad, so a slow panel is a keypad that misses presses. 400 kHz is
+# within the SSD1309's spec and cuts that to ~24 ms.
+if grep -qE '^dtparam=i2c_arm_baudrate=400000' /boot/firmware/config.txt; then
+    ok "I2C already at 400 kHz"
+else
+    sudo sed -i '/^dtparam=i2c_arm_baudrate=/d' /boot/firmware/config.txt
+    echo 'dtparam=i2c_arm_baudrate=400000' | sudo tee -a /boot/firmware/config.txt >/dev/null
+    warn "I2C set to 400 kHz — takes effect after a reboot"
+fi
+
 # SPI OFF, and this is not cosmetic: BCM 7 and 8 are CE1/CE0. With SPI enabled
 # the kernel owns those two lines, lgpio cannot claim them, and the D-pad's
 # up/down keys are dead while the other three work perfectly — an asymmetry
