@@ -25,8 +25,18 @@ from .display import ViewModel
 
 WIDTH, HEIGHT = 128, 64
 _FONTS = Path(__file__).parent / "fonts"
-FONT_SMALL = ImageFont.truetype(str(_FONTS / "TerminusTTF-4.49.3.ttf"), 12)
-FONT_TITLE = ImageFont.truetype(str(_FONTS / "TerminusTTF-Bold-4.49.3.ttf"), 14)
+# Layout.BASIC is pinned, not defaulted to. Pillow picks Raqm (HarfBuzz
+# shaping, with kerning) whenever libraqm is present and BASIC when it is
+# not — so the same Pillow and the same freetype render this panel two
+# different ways depending on the machine. Raqm is present on Raspberry Pi OS
+# and absent on macOS, which means the device was drawing text measurably
+# tighter than the design it was tuned against. Terminus is a pixel font with
+# fixed advances; shaping it is wrong here as well as non-deterministic.
+_LAYOUT = ImageFont.Layout.BASIC
+FONT_SMALL = ImageFont.truetype(str(_FONTS / "TerminusTTF-4.49.3.ttf"), 12,
+                                layout_engine=_LAYOUT)
+FONT_TITLE = ImageFont.truetype(str(_FONTS / "TerminusTTF-Bold-4.49.3.ttf"), 14,
+                                layout_engine=_LAYOUT)
 
 
 def _w(draw: ImageDraw.ImageDraw, text: str, font) -> int:

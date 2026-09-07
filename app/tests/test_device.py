@@ -23,8 +23,12 @@ class TestTheDisplay:
 
     def test_the_oled_answers_at_its_address(self):
         """0x3C is the SSD1309; 0x36 alongside it is the UPS fuel gauge."""
-        assert shutil.which("i2cdetect"), "apt install i2c-tools"
-        out = subprocess.run(["i2cdetect", "-y", "1"], capture_output=True,
+        # i2cdetect lives in /usr/sbin, which is not on PATH for a
+        # non-login shell — so `ssh pi pytest` cannot find a tool that is
+        # perfectly well installed. Look there explicitly.
+        exe = shutil.which("i2cdetect", path="/usr/sbin:/usr/bin:/bin")
+        assert exe, "apt install i2c-tools"
+        out = subprocess.run([exe, "-y", "1"], capture_output=True,
                              text=True).stdout
         assert "3c" in out.lower(), f"no display on the bus:\n{out}"
 
@@ -68,7 +72,10 @@ class TestAudio:
             player.shutdown()
 
     def test_pipewire_is_running(self):
-        assert shutil.which("pactl"), "apt install pipewire pipewire-pulse"
+        # pactl comes from pulseaudio-utils, not from pipewire-pulse: the
+        # latter is the server side of the protocol and ships no client.
+        assert shutil.which("pactl"), \
+            "apt install pipewire pipewire-pulse wireplumber pulseaudio-utils"
         out = subprocess.run(["pactl", "info"], capture_output=True, text=True)
         assert out.returncode == 0, out.stderr
 
@@ -84,9 +91,25 @@ class TestBluetooth:
 
     def test_pairings_survive_a_reboot(self):
         """Under a read-only root, /var/lib/bluetooth must be bind-mounted to
-        the writable partition or every pairing is lost. Phase 4."""
+        the writable partition or every pairing is lost. Phase 4.
+
+        The check is on the *filesystem*, not on our own permissions: the
+        directory is 0700 root:root because BlueZ runs as root, so asking
+        whether the invoking user can write to it answers a different
+        question and fails on a perfectly good device.
+        """
         import os
         path = "/var/lib/bluetooth"
         assert os.path.isdir(path)
-        assert os.access(path, os.W_OK), \
-            f"{path} is not writable — pairings will not survive a reboot"
+
+        mount, options = "", []
+        with open("/proc/mounts") as mounts:
+            for line in mounts:
+                _, point, _, opts, *_ = line.split()
+                if (point == path or path.startswith(point.rstrip("/") + "/")) \
+                        and len(point) > len(mount):
+                    mount, options = point, opts.split(",")
+
+        assert "ro" not in options, (
+            f"{path} sits on {mount}, mounted read-only — pairings will not "
+            "survive a reboot. Bind-mount it onto the writable partition.")

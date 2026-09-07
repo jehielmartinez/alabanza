@@ -209,9 +209,18 @@ class BluezBackend:
     def _path(self, mac: str) -> str:
         return f"{self._adapter_path}/dev_{mac.replace(':', '_').upper()}"
 
-    def _submit(self, coro) -> None:
+    def _submit(self, coro):
+        """Schedule a coroutine on the bus thread.
+
+        Returns a concurrent Future, or None when the loop is already gone --
+        in which case the coroutine is closed explicitly. Dropping it instead
+        leaves an un-awaited coroutine for the garbage collector to complain
+        about later, at a point in the log with nothing to do with the cause.
+        """
         if self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return asyncio.run_coroutine_threadsafe(coro, self._loop)
+        coro.close()
+        return None
 
     def _start(self, op: str, mac: str, coro_factory) -> None:
         if self._busy:
@@ -238,16 +247,17 @@ class BluezBackend:
         self._busy = None
         self._publish()
 
+    async def _set_discovery(self, on: bool) -> None:
+        member = "StartDiscovery" if on else "StopDiscovery"
+        try:
+            await self._call(self._adapter_path, ADAPTER_IFACE, member)
+        except RuntimeError:
+            pass                         # already started/stopped is not an error
+        self._scanning = on
+        self._publish()
+
     def scan(self, on: bool) -> None:
-        async def run():
-            member = "StartDiscovery" if on else "StopDiscovery"
-            try:
-                await self._call(self._adapter_path, ADAPTER_IFACE, member)
-            except RuntimeError:
-                pass                     # already started/stopped is not an error
-            self._scanning = on
-            self._publish()
-        self._submit(run())
+        self._submit(self._set_discovery(on))
 
     def pair(self, mac: str) -> None:
         """Pair, trust, connect: one intent, one result."""
@@ -291,5 +301,23 @@ class BluezBackend:
         self._publish()
 
     def close(self) -> None:
-        self.scan(False)
+        """Stop discovery, then the bus thread — in that order, and waited on.
+
+        Scheduling StopDiscovery and stopping the loop on the next line
+        destroys the task mid-flight, so the adapter is *left discovering*
+        after the app has gone. On a battery device that is a radio drain
+        against the 8-hour target, and an active discovery on the shared
+        2.4 GHz radio is a known cause of A2DP stutter — so the symptom
+        reaching anyone would be "the speaker crackles sometimes".
+
+        The waits are bounded: shutdown must not hang because BlueZ is wedged.
+        """
+        if self._scanning:
+            pending = self._submit(self._set_discovery(False))
+            if pending is not None:
+                try:
+                    pending.result(timeout=2.0)
+                except Exception:        # noqa: BLE001 - we are closing anyway
+                    pass
         self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=2.0)
