@@ -36,15 +36,22 @@ EXCLUDES=(
     --exclude '.DS_Store'
 )
 
+# -z earns its keep on source but is actively harmful on the library: MP4s
+# are already compressed, so gzip finds nothing and both CPUs become the
+# bottleneck on what should be a network-bound copy. --partial matters over
+# WiFi, where losing 2 GB at 95% and starting again is a real outcome.
+FLAGS=(-az --delete)
 if [ "${2:-}" != "--library" ]; then
     EXCLUDES+=(--exclude 'tools/library/' --exclude 'tools/downloads/')
+else
+    FLAGS=(-a --delete --partial)
 fi
 
 # Portable flags only. macOS ships openrsync (advertised as "2.6.9
 # compatible"), which rejects --info=stats1 and most other modern rsync
 # options; the script has to run from a Mac, so it sticks to the old set.
 echo "==> syncing $REPO -> $TARGET:$DEST"
-rsync -az --delete "${EXCLUDES[@]}" "$REPO/" "$TARGET:$DEST/"
+rsync "${FLAGS[@]}" "${EXCLUDES[@]}" "$REPO/" "$TARGET:$DEST/"
 
 echo "==> done"
 if [ "${2:-}" != "--library" ]; then

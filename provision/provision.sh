@@ -90,17 +90,25 @@ step "Installing system packages"
 #              gets all the way to `ld` before failing on `-llgpio`.
 #              Leaving any of them out yields a venv that imports gpiozero
 #              fine and fails only when it first touches a pin.
-# pipewire, pipewire-pulse, wireplumber, pulseaudio-utils
+# pipewire, pipewire-audio, pipewire-pulse, wireplumber, pulseaudio-utils
 #              Pi OS Lite ships no sound server at all. Without one the USB
 #              DAC and the Bluetooth sink cannot be selected, so every audio
 #              route in SPEC.md is unreachable. pulseaudio-utils is easy to
 #              leave out and looks unrelated: pipewire-pulse supplies the
 #              PulseAudio *server* protocol, while `pactl` -- the client the
 #              tests and any manual debugging use -- ships separately.
+# libspa-0.2-bluetooth
+#              PipeWire's Bluetooth backend, and its own package. Without it
+#              a speaker pairs and connects perfectly -- BlueZ reports
+#              Connected: yes and resolves the A2DP Sink UUID -- and then no
+#              sink ever appears, so Salida = Bluetooth silently has nowhere
+#              to send audio. The Bluetooth half looks healthy from every
+#              angle except the one that matters.
 # rfkill       needed to clear the Bluetooth soft block below
 # rsync, git   getting the repo and the library onto the box
 PACKAGES=(libmpv2 i2c-tools swig python3-dev build-essential liblgpio-dev
-          pipewire pipewire-pulse wireplumber pulseaudio-utils rfkill rsync git)
+          pipewire pipewire-audio pipewire-pulse wireplumber pulseaudio-utils
+          libspa-0.2-bluetooth rfkill rsync git)
 
 MISSING=()
 for pkg in "${PACKAGES[@]}"; do
@@ -164,6 +172,29 @@ fi
 
 sudo systemctl enable --now bluetooth >/dev/null 2>&1 || true
 sudo systemctl restart bluetooth >/dev/null 2>&1 || true
+
+# WirePlumber gates its Bluetooth monitor on logind *seat* state and starts it
+# only for a session that is `active` on a seat. This appliance has no display
+# manager and no graphical login, so its session sits at `online` forever and
+# the monitor loads, asks logind, and quietly declines to start. The symptom is
+# perfect: BlueZ pairs, trusts, connects and resolves the A2DP Sink UUID, and
+# no sink ever appears in PipeWire. Nothing in the Bluetooth stack looks wrong.
+sudo mkdir -p /etc/wireplumber/wireplumber.conf.d
+sudo tee /etc/wireplumber/wireplumber.conf.d/50-alabanza-headless.conf >/dev/null <<'WPCONF'
+# Alabanza runs headless with no seat, ever. Without this there is no
+# Bluetooth audio -- see provision/README.md.
+wireplumber.profiles = {
+  main = {
+    monitor.bluez.seat-monitoring = disabled
+  }
+}
+WPCONF
+ok "WirePlumber seat-monitoring disabled — Bluetooth audio can start headless"
+
+# Installing SPA plugins does not make a running PipeWire notice them, so the
+# stack is restarted after packages, not before.
+systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true
+sleep 2
 
 # --- 4. python environment ------------------------------------------------
 

@@ -87,6 +87,20 @@ Three of the steps are not obvious, and each one cost an evening to find:
   `uv run` behaves identically on the Pi and on a laptop, and every command in
   the docs is `uv run`.)*
 
+- **`libspa-0.2-bluetooth` is installed.** It is PipeWire's Bluetooth backend
+  and ships as its own package. Without it a speaker pairs and connects
+  perfectly — BlueZ reports `Connected: yes` and resolves the A2DP Sink UUID —
+  and no sink ever appears, so `Salida = Bluetooth` has nowhere to send audio.
+  Every diagnostic you would reach for says Bluetooth is fine.
+
+- **WirePlumber's seat monitoring is disabled.** This is the one that looks
+  like witchcraft. WirePlumber starts its Bluetooth monitor only for a logind
+  session that is `active` **on a seat** — a graphical login. A headless
+  appliance never gets one, so the monitor loads, consults logind, and declines
+  to start. Meanwhile BlueZ pairs, trusts, connects, and resolves the A2DP Sink
+  UUID, so `bluetoothctl` reports a perfectly healthy connection while no sink
+  ever appears in PipeWire and `Salida = Bluetooth` has nowhere to go.
+
 - **The verify step opens the GPIO chip**, rather than just importing
   `gpiozero`. Importing proves nothing; the failure above is invisible to it.
 
