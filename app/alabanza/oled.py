@@ -23,7 +23,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .display import ViewModel
 
+# --- the panel, and everything derived from it ----------------------------
+#
+# Change these two numbers and the layout reflows: nothing below is a fixed
+# pixel row. That was not true before -- the playing screen's bottom row sat
+# at a hardcoded y=44 while the panel is 64 tall, which is how 8 px of a
+# 128x64 display came to be permanently blank.
 WIDTH, HEIGHT = 128, 64
+
+ROW_H = 12                       # one line of FONT_SMALL
+SEP_Y = ROW_H + 1                # the rule under the status bar
+BODY_Y = SEP_Y + 2               # first usable row below it
+BOTTOM_Y = HEIGHT - ROW_H        # last row, anchored to the glass
+TITLE_H = 17                     # FONT_TITLE's ascender to descender
+PROGRESS_H = 8
 _FONTS = Path(__file__).parent / "fonts"
 # Layout.BASIC is pinned, not defaulted to. Pillow picks Raqm (HarfBuzz
 # shaping, with kerning) whenever libraqm is present and BASIC when it is
@@ -129,7 +142,7 @@ def _status_bar(draw, vm: ViewModel) -> None:
     elif vm.status_right:
         draw.text((WIDTH - _w(draw, vm.status_right, FONT_SMALL), 0),
                   vm.status_right, font=FONT_SMALL, fill=1)
-    draw.line((0, 13, WIDTH, 13), fill=1)
+    draw.line((0, SEP_Y, WIDTH, SEP_Y), fill=1)
 
 
 def _marquee_px(draw, y, text, font, px_per_sec=24, now=None):
@@ -144,9 +157,12 @@ def _marquee_px(draw, y, text, font, px_per_sec=24, now=None):
     draw.text((-offset, y), loop + loop, font=font, fill=1)
 
 
+LIST_ROWS = (HEIGHT - BODY_Y) // ROW_H       # how many fit above the hint
+
+
 def _list_rows(draw, lines: list[str]) -> None:
-    y = 16
-    for line in lines[:4]:
+    y = BODY_Y + 1
+    for line in lines[:LIST_ROWS]:
         cursor = line.startswith("> ")
         text = _fit(draw, line[2:] if cursor else line.removeprefix("  "),
                     FONT_SMALL, WIDTH - 2)
@@ -155,7 +171,7 @@ def _list_rows(draw, lines: list[str]) -> None:
             draw.text((2, y), text, font=FONT_SMALL, fill=0)
         else:
             draw.text((2, y), text, font=FONT_SMALL, fill=1)
-        y += 12
+        y += ROW_H
 
 
 def _bottom_row(draw, vm: ViewModel, y: int) -> None:
@@ -189,22 +205,29 @@ def render(vm: ViewModel, now: float | None = None) -> Image.Image:
     if vm.lines:
         _list_rows(draw, vm.lines)
         if vm.hint:
-            draw.rectangle((0, 52, WIDTH, HEIGHT), fill=0)
-            draw.text((0, 52), vm.hint, font=FONT_SMALL, fill=1)
+            draw.rectangle((0, BOTTOM_Y, WIDTH, HEIGHT), fill=0)
+            draw.text((0, BOTTOM_Y), vm.hint, font=FONT_SMALL, fill=1)
         return img
 
-    _marquee_px(draw, 15, vm.title, FONT_TITLE, now=now)
+    _marquee_px(draw, BODY_Y, vm.title, FONT_TITLE, now=now)
+
+    # What is left between the title and the bottom row, centred rather than
+    # left over: the progress bar and the subtitle both sit in the middle of
+    # it, so the spare pixels are shared above and below instead of pooling
+    # at the foot of the panel.
+    middle = BODY_Y + TITLE_H
     if vm.progress is not None:
-        draw.rectangle((0, 34, WIDTH - 1, 39), outline=1, fill=0)
+        top = middle + (BOTTOM_Y - middle - PROGRESS_H) // 2
+        draw.rectangle((0, top, WIDTH - 1, top + PROGRESS_H - 1),
+                       outline=1, fill=0)
         fill_w = round(max(0.0, min(1.0, vm.progress)) * (WIDTH - 3))
         if fill_w:
-            draw.rectangle((1, 35, 1 + fill_w, 38), fill=1)
-        _bottom_row(draw, vm, 44)
-    else:
-        if vm.subtitle:
-            draw.text((0, 34), _fit(draw, vm.subtitle, FONT_SMALL),
-                      font=FONT_SMALL, fill=1)
-        _bottom_row(draw, vm, 52)
+            draw.rectangle((1, top + 2, 1 + fill_w, top + PROGRESS_H - 3), fill=1)
+    elif vm.subtitle:
+        top = middle + (BOTTOM_Y - middle - ROW_H) // 2
+        draw.text((0, top), _fit(draw, vm.subtitle, FONT_SMALL),
+                  font=FONT_SMALL, fill=1)
+    _bottom_row(draw, vm, BOTTOM_Y)
     return img
 
 
