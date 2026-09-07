@@ -9,7 +9,14 @@ is instant and exact. Design: docs/BLUETOOTH.md.
 import pytest
 
 from alabanza.app import Mode
-from alabanza.bluetooth import ERR_OFF, ERR_PAIR, ERR_TIMEOUT, NullBackend, visible
+from alabanza.bluetooth import (
+    ERR_OFF,
+    ERR_PAIR,
+    ERR_TIMEOUT,
+    NullBackend,
+    is_audio,
+    visible,
+)
 from alabanza.bt_fake import FakeBackend
 from alabanza.events import Kind
 from alabanza.settings import Settings
@@ -301,3 +308,54 @@ class TestTheTransportIsNeverHijacked:
         rig.press(Kind.SEEK_BACK)
         assert rig.player.seeks
         assert rig.app.mode is Mode.BT_LIST
+
+
+class TestWhatCountsAsASpeaker:
+    """is_audio() decides whether a device ever reaches the menu, so a wrong
+    answer here is invisible: the speaker simply is not in the list.
+
+    The awkward cases are all drawn from one real scan on a Pi 4 — see the
+    Class-of-Device note in bluetooth.py.
+    """
+
+    # Exactly what BlueZ reported for the speaker this was found on.
+    RUGGEDLIFE = {
+        "Alias": "RuggedLife Speaker ESR103PM",
+        "AddressType": "public",
+        "Class": 0x002540,          # major 0x05: Peripheral. It is a speaker.
+        "Icon": "input-keyboard",
+        "UUIDs": [],                # ServicesResolved: False
+    }
+
+    def test_it_finds_a_speaker_that_reports_itself_as_a_keyboard(self):
+        """Cheap speakers ship copy-pasted Class-of-Device values. Believing
+        them cost this project its primary audio route."""
+        assert is_audio(self.RUGGEDLIFE)
+
+    def test_it_ignores_ble_only_advertisers(self):
+        """Eight of the nine devices in that scan were phones and watches
+        advertising over BLE: random address, no Class at all. A2DP is a
+        BR/EDR profile, so none of them can be a speaker."""
+        assert not is_audio({"AddressType": "random", "UUIDs": []})
+
+    def test_a_phone_still_never_appears(self):
+        """The Class of Device is only distrusted in one direction. Phones and
+        laptops do not misreport themselves, and SPEC.md requires they stay
+        out of the list."""
+        assert not is_audio({"Class": 0x5A020C, "UUIDs": []})   # major 0x02
+        assert not is_audio({"Class": 0x10010C, "UUIDs": []})   # major 0x01
+
+    def test_resolved_uuids_beat_any_guess(self):
+        a2dp = "0000110B-0000-1000-8000-00805F9B34FB"
+        assert is_audio({"Class": 0x002540, "UUIDs": [a2dp]})
+        # ...and a device that told us its profiles and lacks A2DP is out,
+        # whatever its class claims.
+        assert not is_audio({"Class": 0x240404,
+                             "UUIDs": ["00001101-0000-1000-8000-00805f9b34fb"]})
+
+    def test_something_we_paired_stays_visible(self):
+        """We only ever pair speakers, so a paired device outranks a UUID list
+        that does not mention A2DP — otherwise it would vanish from the menu
+        the moment it connected and could never be forgotten."""
+        assert is_audio({"Paired": True,
+                         "UUIDs": ["00001101-0000-1000-8000-00805f9b34fb"]})

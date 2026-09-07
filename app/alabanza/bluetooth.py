@@ -36,6 +36,56 @@ ERR_OFF = "Bluetooth apagado"
 ERR_TIMEOUT = "Sin respuesta"
 
 
+A2DP_SINK = "0000110b-0000-1000-8000-00805f9b34fb"
+
+# Major Class-of-Device values that a speaker never reports.
+#
+# The inverse — a list of classes a speaker *does* report — is what was here
+# before, and it does not survive real hardware: cheap speakers ship with a
+# copy-pasted Class of Device. The one this was found on is a "RuggedLife
+# Speaker ESR103PM" that identifies as major class 0x05, Peripheral, with
+# Icon "input-keyboard". It would never have appeared in the menu, which
+# takes out the primary audio route entirely.
+#
+# Phones and computers, by contrast, do not lie about being phones and
+# computers — so excluding what we are sure of, rather than admitting only
+# what we recognise, keeps SPEC.md's "a volunteer must not page through
+# thirty phones" while still finding the speaker that misdescribes itself.
+NOT_A_SPEAKER = frozenset({
+    0x01,   # Computer
+    0x02,   # Phone
+    0x03,   # LAN / network access point
+    0x06,   # Imaging: printer, scanner, camera
+    0x09,   # Health
+})
+
+
+def is_audio(props: dict) -> bool:
+    """A speaker, not somebody's phone, from BlueZ's device properties.
+
+    Three tiers, most authoritative first:
+
+    1. UUIDs contain A2DP Sink. Certain — but BlueZ only resolves UUIDs after
+       connecting, so during discovery this is almost never available.
+    2. UUIDs known and lacking A2DP: believe them, unless we paired it, since
+       we only ever pair speakers.
+    3. UUIDs unresolved, so fall back to the Class of Device. **No Class at
+       all means the device was seen only over BLE**, and A2DP is a BR/EDR
+       profile — it cannot be a speaker however loudly it advertises. That
+       one check removes the phones, watches and trackers that make up the
+       bulk of a scan in a populated room.
+    """
+    uuids = [u.lower() for u in props.get("UUIDs", [])]
+    if A2DP_SINK in uuids:
+        return True
+    if uuids:                                  # knows its profiles, lacks A2DP
+        return bool(props.get("Paired"))       # we only ever pair speakers
+    cls = props.get("Class")
+    if cls is None:
+        return False                           # BLE-only advertiser
+    return ((cls >> 8) & 0x1F) not in NOT_A_SPEAKER
+
+
 @dataclass(frozen=True)
 class BtDevice:
     mac: str

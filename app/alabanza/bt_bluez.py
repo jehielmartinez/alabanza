@@ -29,6 +29,7 @@ from .bluetooth import (
     BtDevice,
     BtResult,
     BtState,
+    is_audio,
 )
 
 BLUEZ = "org.bluez"
@@ -36,7 +37,6 @@ ADAPTER_IFACE = "org.bluez.Adapter1"
 DEVICE_IFACE = "org.bluez.Device1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 AGENT_PATH = "/org/alabanza/agent"
-A2DP_SINK = "0000110b-0000-1000-8000-00805f9b34fb"
 
 # BlueZ error name / text fragment -> what the OLED says
 _ERRORS = {
@@ -56,17 +56,6 @@ def _message(error: str) -> str:
         if needle in error:
             return text
     return ERR_CONNECT
-
-
-def _is_audio(props: dict) -> bool:
-    """A speaker, not somebody's phone. UUIDs are authoritative once known;
-    the class-of-device major field covers devices seen only in discovery."""
-    uuids = [u.lower() for u in props.get("UUIDs", [])]
-    if A2DP_SINK in uuids:
-        return True
-    if uuids:                                  # knows its profiles, lacks A2DP
-        return bool(props.get("Paired"))       # we only ever pair speakers
-    return ((props.get("Class", 0) >> 8) & 0x1F) == 0x04   # Audio/Video
 
 
 class _Agent(ServiceInterface):
@@ -121,7 +110,7 @@ class BluezBackend:
                 name=props.get("Alias") or props.get("Name") or props.get("Address", ""),
                 paired=bool(props.get("Paired")),
                 connected=bool(props.get("Connected")),
-                audio=_is_audio(props),
+                audio=is_audio(props),
                 rssi=props.get("RSSI"),
             )
             for props in self._props.values() if props.get("Address")
