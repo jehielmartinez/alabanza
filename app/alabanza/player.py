@@ -9,6 +9,7 @@ import ctypes.util
 import os
 import random
 import sys
+import time
 from pathlib import Path
 
 # macOS dev machines: Homebrew's libmpv lives outside ctypes' search path.
@@ -31,6 +32,13 @@ SEEK_STEP_SECONDS = 10
 # morning. Regenerate with tools/make_screensaver.py; drop in replacements
 # named screensaver*.png and they are picked up with no code change.
 IDLE_DIR = Path(__file__).parent / "assets"
+
+# mpv loads asynchronously: play() returns in ~1 ms but `filename` only appears
+# ~12 ms later. Until then a hymn is starting but not yet reported as loaded,
+# and app.tick() -- which runs microseconds after handle() -- would read that
+# as "the hymn finished on its own". How long to keep answering `active` while
+# a load is in flight, before concluding it failed.
+START_GRACE = 5.0
 
 
 def _idle_images(directory: Path = IDLE_DIR) -> list[Path]:
@@ -99,6 +107,7 @@ class Player:
         self._idle_shown: Path | None = None
         self._idle_queue: list[Path] = []
         self._showing_idle = False
+        self._starting_until = 0.0
         self._mpv = mpv.MPV(
             vid="auto" if video else "no",
             osc=False,
@@ -117,6 +126,7 @@ class Player:
     # -- lifecycle -----------------------------------------------------
     def play(self, path: Path) -> None:
         self._showing_idle = False
+        self._starting_until = time.monotonic() + START_GRACE
         self._mpv.speed = 1.0  # spec: speed resets per hymn
         self._mpv.play(str(path))
         self._mpv.pause = False
@@ -145,6 +155,7 @@ class Player:
             if len(self._idle_queue) > 1 and self._idle_queue[0] == self._idle_shown:
                 self._idle_queue.append(self._idle_queue.pop(0))
         chosen = self._idle_queue.pop(0)
+        self._starting_until = 0.0
         self._mpv.play(str(chosen))
         self._mpv.pause = False
         self._idle_shown = chosen
@@ -155,6 +166,7 @@ class Player:
             self._mpv.pause = not self._mpv.pause
 
     def stop(self) -> None:
+        self._starting_until = 0.0
         self._mpv.stop()
         self.show_idle()
 
@@ -164,13 +176,28 @@ class Player:
     # -- state ---------------------------------------------------------
     @property
     def active(self) -> bool:
-        """A *hymn* is loaded (playing or paused).
+        """A *hymn* is loaded, starting, playing or paused.
 
-        The idle image is loaded in mpv too, and deliberately does not count:
+        Two things this must get right, both learned the hard way.
+
+        The idle image is loaded in mpv too and deliberately does not count:
         every caller means "is a hymn on" — whether Play pauses, whether Stop
         has anything to stop, whether a lost speaker should pause playback.
+
+        And a hymn that is still *loading* counts. mpv is asynchronous:
+        play() returns in about a millisecond, `filename` appears about twelve
+        later. app.tick() runs microseconds after app.handle(), so it lands
+        inside that window and used to read a starting hymn as a finished one
+        — clearing now_playing and putting the idle image back over a hymn
+        that had only just begun. The operator saw a keypress do nothing and
+        pressed again.
         """
-        return self._mpv.filename is not None and not self._showing_idle
+        if self._showing_idle:
+            return False
+        if self._mpv.filename is not None:
+            self._starting_until = 0.0
+            return True
+        return time.monotonic() < self._starting_until
 
     @property
     def paused(self) -> bool:

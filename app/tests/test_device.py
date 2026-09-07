@@ -10,6 +10,7 @@ acceptance check (Phase 5). See docs/TESTING.md.
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -113,3 +114,45 @@ class TestBluetooth:
         assert "ro" not in options, (
             f"{path} sits on {mount}, mounted read-only — pairings will not "
             "survive a reboot. Bind-mount it onto the writable partition.")
+
+
+class TestPlaybackStartsWhenAsked:
+    """mpv is asynchronous and the app is not. Only real libmpv shows this,
+    so it cannot live in the laptop suite."""
+
+    def test_a_hymn_counts_as_active_the_instant_play_returns(self, tmp_path):
+        """play() returns in ~1 ms; mpv sets `filename` ~12 ms later.
+
+        app.tick() runs microseconds after app.handle(), so it lands inside
+        that window. When `active` reported False there, tick() concluded the
+        hymn had finished on its own, cleared it and put the idle image back
+        over a hymn that had only just started — and the operator saw their
+        keypress do nothing.
+        """
+        from alabanza.player import Player
+
+        media = next(iter(sorted(
+            (Path.home() / "alabanza" / "tools" / "library").glob("*.mp4"))), None)
+        if media is None:
+            pytest.skip("no library on this device")
+
+        player = Player(video=False)
+        try:
+            player.play(media)
+            assert player.active, (
+                "a hymn is not 'active' immediately after play() — tick() will "
+                "read it as finished and cancel it")
+        finally:
+            player.shutdown()
+
+    def test_the_idle_image_is_not_mistaken_for_a_hymn(self):
+        """The reverse error: the image is loaded through the same mpv, so
+        `active` must exclude it or Stop and Play act on a picture."""
+        from alabanza.player import Player
+
+        player = Player(video=False)
+        try:
+            player.show_idle()
+            assert not player.active
+        finally:
+            player.shutdown()
