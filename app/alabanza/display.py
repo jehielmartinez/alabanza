@@ -207,3 +207,6 @@ class ThreadedDisplay:
         self._stop.set()
         self._wake.set()
         self._thread.join(timeout=1.0)
+        inner_close = getattr(self._inner, "close", None)
+        if inner_close is not None:
+            inner_close()

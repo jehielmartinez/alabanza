@@ -220,6 +220,21 @@ class OledDisplay:
         self.device = device
         self._last: bytes | None = None
 
+    def close(self) -> None:
+        """Blank the panel.
+
+        luma clears the display at interpreter exit, but on shutdown the
+        process is killed before that runs -- and a Pi that has halted still
+        powers its 3.3 V rail, so the OLED holds its last frame indefinitely.
+        The device looks switched on when it is not, and on battery it draws
+        current for the privilege. A dark panel is what "off" looks like.
+        """
+        try:
+            self.device.hide()
+            self.device.clear()
+        except Exception:                       # noqa: BLE001
+            pass                                # already going down
+
     def render(self, vm: ViewModel) -> None:
         # Pushing 1 KB over I2C costs ~96 ms at 100 kHz, and the app renders
         # every 50 ms tick — so an unconditional write pins the whole loop at

@@ -61,6 +61,36 @@ def _oled_device_display():
     return ThreadedDisplay(OledDisplay())
 
 
+def _power_off() -> None:
+    """Power the machine down.
+
+    The app never runs as root, so this needs help. `systemctl poweroff` is
+    tried first because it needs no special rule when logind allows it, and
+    the narrow sudoers entry installed by provision.sh is the fallback -- that
+    entry grants exactly this one command and nothing else.
+
+    A failure here is reported and otherwise ignored: SPEC decision 10 makes
+    pulling the plug officially supported, so the worst case is the operator
+    doing what they would have done anyway.
+    """
+    import subprocess
+
+    # sudo first. `systemctl poweroff` has no seat to authenticate against on
+    # a headless box, so logind asks polkit, which prompts for a password on
+    # the console -- and the console is a projector. --no-ask-password makes
+    # the fallback fail quietly instead of asking.
+    for command in (["sudo", "-n", "/sbin/poweroff"],
+                    ["systemctl", "--no-ask-password", "poweroff"]):
+        try:
+            subprocess.run(command, check=True, timeout=15,
+                           capture_output=True)
+            return
+        except (OSError, subprocess.SubprocessError):
+            continue
+    print("could not power off — check the sudoers rule from provision.sh",
+          file=sys.stderr)
+
+
 def _bluetooth_backend(choice: str):
     from .bluetooth import NullBackend
 
@@ -80,7 +110,8 @@ def _bluetooth_backend(choice: str):
 
 def run(screen: "curses.window", library_dir: Path, video: bool,
         settings_path: Path, oled: bool, bt_choice: str, gpio: bool,
-        oled_device: bool) -> None:
+        oled_device: bool) -> bool:
+    """Returns True if the operator asked for the device to power off."""
     screen.timeout(TICK_MS)
     screen.keypad(True)
     displays = [CursesDisplay(screen)]
@@ -107,6 +138,7 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
             vm = app.tick()
             for display in displays:
                 display.render(vm)
+        return app.shutdown_requested
     finally:
         if controls:
             controls.close()
@@ -138,8 +170,12 @@ def main() -> int:
                         help="also draw on the real SSD1309 over I2C "
                              "(device only)")
     args = parser.parse_args()
-    curses.wrapper(run, args.library, not args.no_video, args.settings,
-                   args.oled, args.bt, args.gpio, args.oled_device)
+    shutdown = curses.wrapper(run, args.library, not args.no_video,
+                              args.settings, args.oled, args.bt, args.gpio,
+                              args.oled_device)
+    # After curses has restored the terminal, so a failure is readable.
+    if shutdown:
+        _power_off()
     return 0
 
 
