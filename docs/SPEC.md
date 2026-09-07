@@ -32,7 +32,7 @@ Prototyping continues on a Pi 4 Model B (same BCM2711 generation, same hardware 
 ## Controls
 
 Nineteen inputs, and **every function reachable with one press** — no chords, no
-long-presses, nothing hidden. Fewer controls is a hard goal, not a preference:
+long-presses, nothing hidden, with exactly one exception (shutdown, below). Fewer controls is a hard goal, not a preference:
 each one is a panel cutout ×10 units and a line on the laminated card.
 
 | Control | Home screen | List screens (menu, Bluetooth, search) |
@@ -45,6 +45,7 @@ each one is a panel cutout ×10 units and a line on the laminated card.
 | D-pad ▲ ▼ | **speed** while playing, browse while idle | move the cursor |
 | Wheel | **volume**, always | move the cursor |
 | Push | **menu** | select |
+| Push, held 3 s | **power off** | power off |
 
 Four functions have no button of their own and are none the worse: Stop is `*`
 ("clear what is going on"), Speed is ▲▼ *while a hymn plays* — exactly when it
@@ -116,7 +117,17 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
 - The board's **I2C fuel gauge** feeds the app: battery percentage is always visible on the OLED status line; charging state shown when plugged in. *(Product stage — deferred on the prototype, see decision 21.)*
 - **Low battery**: warning on OLED at 15%, **safe automatic shutdown at ~5%** — the device never brownout-crashes mid-hymn. *(Product stage — deferred on the prototype, see decision 21.)*
 - **Yank-safe by design**: root filesystem read-only (overlay mode). Settings (volumes, paired speakers, selected output) live on a tiny writable partition with rare, atomic writes.
-- Unplugging or hard power-off at any moment is **officially supported**. A menu Shutdown option also exists for the tidy-minded.
+- Unplugging or hard power-off at any moment is **officially supported**.
+- **Shutdown has two routes**: `Apagar`, the last item in the menu, and
+  **holding the encoder push for 3 seconds** — the OLED counts down from
+  0.6 s so there is time to let go, and going dark is how the panel says it
+  worked.
+
+  The hold is the **one deliberate exception** to "no long-presses" above.
+  Every other control should be instant; this single one must be hard to do
+  by accident, and a hold is self-cancelling in a way a menu item is not —
+  let go and nothing happened. Both routes exist because a hold is
+  undiscoverable and a menu is slow, and shutdown wants to be neither.
 
 ## Software stack
 
@@ -191,3 +202,16 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
     class, as used in ClockworkPi's PicoCalc) provides charger, power path,
     regulation and fuel gauge in one part. This is why no vendor sells the
     all-in-one module: products design the PMU onto the mainboard.
+
+22. **Shutdown is a menu item and a 3-second hold on the encoder push, and the
+    app never quits to a console.** The menu previously offered "Salir", which
+    exited the process — wrong in both directions on an appliance: it drops the
+    projector to a Linux console, which decision 8 forbids, or systemd silently
+    restarts it. The hold breaks "no chords, no long-presses, nothing hidden"
+    on purpose and is the only thing that does: shutdown is the single action
+    where being hard to trigger by accident beats being quick, and a hold is
+    self-cancelling in a way a menu item is not. Both routes exist because a
+    hold is undiscoverable and a menu is slow. The device runs as a systemd
+    **user** service — it needs the user's PipeWire session for audio, which a
+    system service would not have — and is granted exactly one privilege,
+    `/sbin/poweroff`, via a sudoers drop-in.
