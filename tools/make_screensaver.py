@@ -19,20 +19,85 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1920, 1080
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "tools" / "assets" / "idle-background.jpg"
-OUT = ROOT / "app" / "alabanza" / "assets" / "screensaver.png"
+ASSETS = ROOT / "tools" / "assets"
+OUT_DIR = ROOT / "app" / "alabanza" / "assets"
 
-# Broken at the clauses, not at the margin. Scripture read from a distance
-# scans far better when each line is a complete thought.
-VERSE = [
-    "Porque en él fueron creadas todas las cosas,",
-    "las que hay en los cielos y las que hay en la tierra,",
-    "visibles e invisibles;",
-    "sean tronos, sean dominios,",
-    "sean principados, sean potestades;",
-    "todo fue creado por medio de él y para él.",
+# One entry per image. Add, remove or reword freely and re-run — the layout,
+# the type size and the scrim all follow the text.
+#
+# Lines are broken at the verse's own clauses, never at the margin: scripture
+# read from the back of a hall scans far better when each line is a complete
+# thought. That is the only rule worth keeping when editing.
+#
+# `background` is a filename in tools/assets/. Several slides may share one.
+#
+# The wording below is Reina-Valera 1960 as commonly printed. **Check it
+# against your own Bible before this goes in front of anyone** — these were
+# written from memory of the standard text, and a misquoted verse on a church
+# projector is exactly the kind of error nobody wants to discover in public.
+SLIDES = [
+    {
+        "background": "milky-way.jpg",
+        "verse": [
+            "Porque de tal manera amó Dios al mundo,",
+            "que ha dado a su Hijo unigénito,",
+            "para que todo aquel que en él cree,",
+            "no se pierda, mas tenga vida eterna.",
+        ],
+        "reference": "Juan 3:16",
+    },
+    {
+        "background": "above-clouds.jpg",
+        "verse": [
+            "Venid a mí todos los que estáis trabajados y cargados,",
+            "y yo os haré descansar.",
+        ],
+        "reference": "Mateo 11:28",
+    },
+    {
+        "background": "fjord-light.jpg",
+        "verse": [
+            "Yo soy la luz del mundo;",
+            "el que me sigue, no andará en tinieblas,",
+            "sino que tendrá la luz de la vida.",
+        ],
+        "reference": "Juan 8:12",
+    },
+    {
+        "background": "golden-hills.jpg",
+        "verse": [
+            "He aquí, yo estoy a la puerta y llamo;",
+            "si alguno oye mi voz y abre la puerta,",
+            "entraré a él, y cenaré con él, y él conmigo.",
+        ],
+        "reference": "Apocalipsis 3:20",
+    },
+    {
+        "background": "open-bible.jpg",
+        "verse": [
+            "Yo soy el camino, y la verdad, y la vida;",
+            "nadie viene al Padre, sino por mí.",
+        ],
+        "reference": "Juan 14:6",
+    },
+    {
+        "background": "empty-tomb.jpg",
+        "verse": [
+            "No está aquí, pues ha resucitado, como dijo.",
+            "Venid, ved el lugar donde fue puesto el Señor.",
+        ],
+        "reference": "Mateo 28:6",
+    },
+    {
+        "background": "snow-mountains.jpg",
+        "verse": [
+            "Venid luego, dice Jehová, y estemos a cuenta:",
+            "si vuestros pecados fueren como la grana,",
+            "como la nieve serán emblanquecidos.",
+        ],
+        "reference": "Isaías 1:18",
+    },
 ]
-REFERENCE = "Colosenses 1:16"
 
 SERIF = "/System/Library/Fonts/Supplemental/Georgia.ttf"
 SERIF_ITALIC = "/System/Library/Fonts/Supplemental/Georgia Italic.ttf"
@@ -84,15 +149,27 @@ def _scrim(image: Image.Image, band_centre: float) -> Image.Image:
                            image, mask.resize((W, H)))
 
 
-def _fit(lines: list[str], path: str, width: int, start: int) -> ImageFont.FreeTypeFont:
-    """Largest size at which the longest line still clears the margins."""
-    size = start
-    while size > 12:
+MAX_SIZE = 96          # a two-line verse should fill the frame, not float in it
+MAX_BLOCK = 0.60       # fraction of height the verse may occupy
+
+
+def _fit(lines: list[str], path: str, width: int) -> ImageFont.FreeTypeFont:
+    """Largest size fitting both the margins and the height budget.
+
+    Width alone is not enough. A short verse constrained only by width would
+    stay at whatever the starting size was and float in the middle of the
+    frame, while a long one that fits horizontally could still run off the
+    bottom. Fitting both means the same layout code gives a two-line psalm
+    real presence and a six-line passage room to breathe, with no per-verse
+    tuning when someone adds one.
+    """
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    for size in range(MAX_SIZE, 12, -1):
         font = ImageFont.truetype(path, size)
-        draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
-        if max(draw.textlength(line, font=font) for line in lines) <= width:
+        too_wide = max(draw.textlength(line, font=font) for line in lines) > width
+        too_tall = len(lines) * size * LINE_SPACING > H * MAX_BLOCK
+        if not (too_wide or too_tall):
             return font
-        size -= 1
     return ImageFont.truetype(path, 12)
 
 
@@ -103,14 +180,17 @@ def _text(draw: ImageDraw.ImageDraw, y: int, line: str, font, fill, alpha: int) 
     draw.text((x, y), line, font=font, fill=fill)
 
 
-def main() -> int:
-    if not SOURCE.exists():
-        raise SystemExit(f"missing background: {SOURCE}")
+def _build(slide: dict) -> Image.Image:
+    source = ASSETS / slide["background"]
+    if not source.exists():
+        raise SystemExit(f"missing background: {source}")
+    VERSE = slide["verse"]
+    REFERENCE = slide["reference"]
 
-    image = _scrim(_cover(Image.open(SOURCE).convert("RGB")), BLOCK_CENTRE)
+    image = _scrim(_cover(Image.open(source).convert("RGB")), BLOCK_CENTRE)
 
     usable = W - 2 * MARGIN
-    verse_font = _fit(VERSE, SERIF, usable, 64)
+    verse_font = _fit(VERSE, SERIF, usable)
     ref_font = ImageFont.truetype(SERIF_ITALIC, int(verse_font.size * 0.62))
 
     step = int(verse_font.size * LINE_SPACING)
@@ -144,11 +224,20 @@ def main() -> int:
     x = (W - draw.textlength(REFERENCE, font=ref_font)) / 2
     draw.text((x, y + gap), REFERENCE, font=ref_font, fill=(196, 210, 216))
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    image.convert("RGB").save(OUT, "PNG", optimize=True)
-    print(f"wrote {OUT.relative_to(ROOT)}  {W}x{H}  "
-          f"verse {verse_font.size}px  ref {ref_font.size}px  "
-          f"{OUT.stat().st_size // 1024} KB")
+    return image.convert("RGB")
+
+
+def main() -> int:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for stale in OUT_DIR.glob("screensaver*.png"):
+        stale.unlink()
+
+    for i, slide in enumerate(SLIDES, 1):
+        out = OUT_DIR / f"screensaver-{i:02d}.png"
+        _build(slide).save(out, "PNG", optimize=True)
+        print(f"  {out.name}  {slide['reference']:20} "
+              f"{out.stat().st_size // 1024:5d} KB")
+    print(f"wrote {len(SLIDES)} images to {OUT_DIR.relative_to(ROOT)}")
     return 0
 
 

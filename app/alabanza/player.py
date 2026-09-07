@@ -7,6 +7,7 @@ default, using scaletempo2).
 
 import ctypes.util
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -25,9 +26,15 @@ SPEED_MIN, SPEED_MAX, SPEED_STEP = 0.75, 1.25, 0.05
 SEEK_STEP_SECONDS = 10
 
 # Shown on HDMI whenever no hymn is on screen — boot, idle and stop, per
-# SPEC.md decision 8. Replaceable: pass another path to Player, or overwrite
-# this file. The packaged one is the built-in fallback.
-IDLE_IMAGE = Path(__file__).parent / "assets" / "screensaver.png"
+# SPEC.md decision 8. Any number of them: one is chosen at random each time
+# the screen goes idle, so the projector is not showing the same verse all
+# morning. Regenerate with tools/make_screensaver.py; drop in replacements
+# named screensaver*.png and they are picked up with no code change.
+IDLE_DIR = Path(__file__).parent / "assets"
+
+
+def _idle_images(directory: Path = IDLE_DIR) -> list[Path]:
+    return sorted(directory.glob("screensaver*.png"))
 
 
 def _drm_device() -> str | None:
@@ -87,8 +94,10 @@ def _video_options() -> dict:
 
 
 class Player:
-    def __init__(self, video: bool = True, idle_image: Path | None = None):
-        self._idle_image = IDLE_IMAGE if idle_image is None else idle_image
+    def __init__(self, video: bool = True, idle_images: list[Path] | None = None):
+        self._idle_images = _idle_images() if idle_images is None else idle_images
+        self._idle_shown: Path | None = None
+        self._idle_queue: list[Path] = []
         self._showing_idle = False
         self._mpv = mpv.MPV(
             vid="auto" if video else "no",
@@ -113,18 +122,33 @@ class Player:
         self._mpv.pause = False
 
     def show_idle(self) -> None:
-        """Put the static image back on HDMI.
+        """Put a static image back on HDMI, chosen at random.
 
         The image goes through the same mpv instance the hymns use, so
         swapping between them is one load and the screen never blanks in
         between. It is loaded like any other file, which is why `active` has
         to exclude it: the whole state machine reads `active` as "a hymn is
         loaded", and an idle picture must not look like one.
+
+        Shuffled deck rather than an independent draw each time. Picking at
+        random repeats: it produced 04, 05, 04, 05 on the bench, and a verse
+        alternating with one other looks like a fault, not like chance. A deck
+        also means a congregation sees every verse over a service instead of
+        the same two all morning. Reshuffled when exhausted, never starting on
+        the one still on screen.
         """
-        if self._idle_image and self._idle_image.exists():
-            self._mpv.play(str(self._idle_image))
-            self._mpv.pause = False
-            self._showing_idle = True
+        pool = [p for p in self._idle_images if p.exists()]
+        if not pool:
+            return
+        if not self._idle_queue:
+            self._idle_queue = random.sample(pool, len(pool))
+            if len(self._idle_queue) > 1 and self._idle_queue[0] == self._idle_shown:
+                self._idle_queue.append(self._idle_queue.pop(0))
+        chosen = self._idle_queue.pop(0)
+        self._mpv.play(str(chosen))
+        self._mpv.pause = False
+        self._idle_shown = chosen
+        self._showing_idle = True
 
     def toggle_pause(self) -> None:
         if self.active:
