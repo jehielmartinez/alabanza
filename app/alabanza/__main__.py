@@ -4,6 +4,10 @@
     uv run alabanza --library /path/dir   # explicit library dir
     uv run alabanza --no-video            # audio only (no mpv window)
     uv run alabanza --bt none             # no bluetooth adapter (default: fake)
+
+On the Pi (Phase 1), --gpio adds the real controls and --oled-device the real
+panel. Both *add* to the keyboard and terminal rather than replacing them, so
+a bench session over SSH shows what the OLED shows and still has `q` to quit.
 """
 
 import argparse
@@ -40,6 +44,18 @@ def _oled_emulator_display():
         pygame_device(width=128, height=64, scale=4, transform="identity"))
 
 
+def _gpio_input():
+    """The real keypad, D-pad and encoder (device only)."""
+    from .input_gpio import GpioInput
+    return GpioInput()
+
+
+def _oled_device_display():
+    """The real SSD1309 over I2C (device only)."""
+    from .oled import OledDisplay
+    return OledDisplay()
+
+
 def _bluetooth_backend(choice: str):
     from .bluetooth import NullBackend
 
@@ -58,12 +74,16 @@ def _bluetooth_backend(choice: str):
 
 
 def run(screen: "curses.window", library_dir: Path, video: bool,
-        settings_path: Path, oled: bool, bt_choice: str) -> None:
+        settings_path: Path, oled: bool, bt_choice: str, gpio: bool,
+        oled_device: bool) -> None:
     screen.timeout(TICK_MS)
     screen.keypad(True)
     displays = [CursesDisplay(screen)]
     if oled:
         displays.append(_oled_emulator_display())
+    if oled_device:
+        displays.append(_oled_device_display())
+    controls = _gpio_input() if gpio else None
     player = Player(video=video)
     bt = _bluetooth_backend(bt_choice)
     app = App(library_dir, player, settings_path, bt)
@@ -71,13 +91,20 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
         app.flash(f"{len(app.library.warnings)} library warnings", 4)
     try:
         while not app.quit_requested:
+            # getch blocks up to TICK_MS and is what paces the loop, so it
+            # stays in the path even when the real controls are wired.
             event = read_event(screen)
             if event:
                 app.handle(event)
+            if controls:
+                for event in controls.poll():
+                    app.handle(event)
             vm = app.tick()
             for display in displays:
                 display.render(vm)
     finally:
+        if controls:
+            controls.close()
         bt.close()
         player.shutdown()
 
@@ -96,9 +123,15 @@ def main() -> int:
     parser.add_argument("--bt", choices=("fake", "real", "none"), default="fake",
                         help="bluetooth backend: scripted speakers (default), "
                              "real BlueZ (device only), or no adapter")
+    parser.add_argument("--gpio", action="store_true",
+                        help="also read the real keypad, D-pad and encoder "
+                             "(device only; keyboard stays live)")
+    parser.add_argument("--oled-device", action="store_true",
+                        help="also draw on the real SSD1309 over I2C "
+                             "(device only)")
     args = parser.parse_args()
     curses.wrapper(run, args.library, not args.no_video, args.settings,
-                   args.oled, args.bt)
+                   args.oled, args.bt, args.gpio, args.oled_device)
     return 0
 
 

@@ -6,8 +6,15 @@ requires-python = ">=3.11"
 dependencies = ["python-mpv>=1.0.7", "pillow>=10.1"]
 
 [project.optional-dependencies]
-# only on the device: talks to the real SSD1309 over I2C, and to BlueZ
-device = ["luma.oled>=3.13", "dbus-fast>=2.21"]
+# only on the device: talks to the real SSD1309 over I2C, the GPIO controls
+# and BlueZ. gpiozero >=2.0.1.post3 for the Pi 5 gpiochip renumbering fix --
+# harmless on the Pi 4 / Zero 2 W, required if anyone runs this on a Pi 500.
+device = [
+    "luma.oled>=3.13",
+    "dbus-fast>=2.21",
+    "gpiozero>=2.0.1.post3",
+    "lgpio>=0.2.2",
+]
 # dev: --oled flag opens a window with the exact 128x64 rendering
 emu = ["luma.emulator>=1.5"]
 # dev: the test suite — uv run --extra test pytest
