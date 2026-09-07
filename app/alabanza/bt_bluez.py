@@ -187,7 +187,19 @@ class BluezBackend:
         if msg.member == "InterfacesAdded":
             self._absorb(msg.body[0], msg.body[1])
         elif msg.member == "InterfacesRemoved":
-            self._props.pop(msg.body[0], None)
+            # body is (path, [interface names]). Only forget the device when
+            # the device interface itself goes.
+            #
+            # BlueZ removes MediaControl1 and MediaTransport1 from a device's
+            # path when it disconnects, while Device1 stays. Dropping the whole
+            # record there threw away Address, Name and Paired -- and _publish
+            # only lists devices that have an Address. The reconnect then
+            # arrives as PropertiesChanged {Connected: True}, which rebuilt an
+            # entry containing nothing else, so the speaker never reappeared:
+            # BlueZ and PipeWire both showed it connected and playing while the
+            # app showed the output as down, for the life of the process.
+            if DEVICE_IFACE in msg.body[1]:
+                self._props.pop(msg.body[0], None)
         elif msg.member == "PropertiesChanged":
             self._absorb(msg.path, {msg.body[0]: msg.body[1]})
         else:
