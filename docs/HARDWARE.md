@@ -75,6 +75,39 @@ are switches to C, mechanically 90° out of phase; firmware reads *which changed
 first* to get direction. Swapping A and B just reverses the knob — a one-line
 software fix, not a respin.
 
+> Bench note, and the debugging is worth recording because two plausible
+> theories were both wrong. A knob that reports **one direction only** — the
+> same event whichever way it is turned — is bad wiring, and nothing else
+> looks like it. Two things were tried first and neither helped:
+>
+> - *Swapping A and B.* A swap inverts direction; it cannot create direction
+>   information that is not there. All it did was change which direction the
+>   knob was stuck on.
+> - *Fitting C1/C2.* The breakout carries the 10 kΩ pull-ups but no caps, so
+>   the RC filter really was absent — but that was not the fault either.
+>
+> What it actually was: the wiring. Re-running the wires fixed it outright,
+> caps still absent. Measured before and after, on the same knob:
+>
+> | | bad wiring | rewired |
+> |---|---|---|
+> | illegal 2-bit transitions | 50% | **0%** |
+> | turning left | reported clockwise | CCW 338 / CW 21 |
+> | turning right | reported clockwise | CW 350 / CCW 9 |
+>
+> A quadrature signal that is genuinely intact shows **0%** illegal
+> transitions — both lines never change together. That single number tells
+> you whether to debug the wire or the software, and is worth measuring first
+> next time.
+>
+> Direction came out correct with `ENC_A` on BCM 17 and `ENC_B` on BCM 27, so
+> no swap is applied in software. Re-check on the first fab'd board; a
+> different EC11 batch may want one.
+>
+> C1/C2 stay on the BOM regardless. They were not the cause here, but the
+> reasoning above them still holds for a knob spun hard in service, and an
+> untested filter on the board is cheaper than a respin.
+
 **A and B each get an RC filter** — the only passives on the board that are not
 optional:
 
