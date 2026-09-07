@@ -43,11 +43,43 @@ This map is the source of truth; [HARDWARE.md](HARDWARE.md) translates it to phy
 
 All buttons and keypad use internal pull-ups, switch to ground — no external resistors needed. The one exception is the rotary encoder, whose A/B lines get an RC filter on the control PCB; see [HARDWARE.md](HARDWARE.md).
 
-## Prototyping hardware: Pi 400 (on hand)
+## Prototyping hardware: Pi 4 Model B (on hand)
 
-A Pi 400 is available now and is a fine development stand-in — full 40-pin GPIO on the rear header, same Bluetooth/HDMI stack, same OS image as the Zero 2 W (Raspberry Pi OS images boot on both). Phases 0–2 run on it as-is, and its built-in keyboard means Phase 0 runs on real Pi hardware.
+A Pi 4 Model B is the development stand-in. Phases 0–2 run on it as-is.
 
-Notes: the Pi 400 is much faster than the production Zero 2 W, so **performance must be re-validated on the real Zero 2 W** before the batch buy; jack audio uses the same USB DAC as production; the battery phase needs the Zero 2 W + power block.
+It is the right stand-in because it is a **BCM2711**, one generation from the
+Zero 2 W's BCM2710 and on the same side of every line that matters here:
+
+| | Pi 4 B (bench) | Zero 2 W (production) |
+|---|---|---|
+| H.264 decode | hardware, V4L2 M2M `/dev/video10` | hardware, same interface |
+| GPIO | `/dev/gpiochip0`, classic BCM block | same |
+| KMS overlay | `vc4-kms-v3d` | same |
+| OS image | one 64-bit Raspberry Pi OS image boots both | |
+
+So the mpv `--hwdec` flags, the `config.txt` quiet-boot work and the whole GPIO
+layer are written once and carry over. Jack audio uses the same USB DAC as
+production.
+
+**A Pi 500 is also on hand and is deliberately not used for this.** It is a Pi
+5–class BCM2712, which *dropped the hardware H.264 decoder* — it plays the 480p
+library in software — and moves GPIO behind the RP1 southbridge, where
+`RPi.GPIO` and `pigpio` do not work at all and `gpiozero` needs ≥2.0.1.post3 for
+the `gpiochip4`→`gpiochip0` renumbering. Both differences point away from the
+Zero 2 W, so decode config and GPIO behaviour tuned there would be thrown away.
+It stays useful as the fast machine for editing and running the Tier 1 suite.
+
+Two cautions that survive the switch:
+
+- The Pi 4 B is still **much faster and has 2–16× the RAM** of the production
+  Zero 2 W, so boot-to-ready, mpv startup latency under 512 MB and thermals
+  **must be re-validated on the real Zero 2 W** before the batch buy.
+- The Pi 4 B **has a 3.5 mm analog jack and the Zero 2 W does not.** Do not let
+  audio quietly come out of it; production audio is the USB DAC, and
+  `pytest -m device` checks for the DAC specifically. The micro-USB OTG adapter
+  that DAC needs on the Zero exists only on the Zero.
+
+The battery phase needs the Zero 2 W + power block regardless.
 
 ## Phases
 
@@ -58,7 +90,7 @@ The app is a state machine around libmpv; none of it needs a Pi. Run it on the d
 - Project scaffold, hymn index (number → title → file), config/settings store
 - Selection flow: digit entry, T9 title search, browse list
 - Playback via libmpv: play/pause/stop, seek, pitch-preserved speed (`scaletempo2`), volume
-- Hardware abstraction layer: `Input` and `Display` interfaces with `KeyboardInput`/`TerminalDisplay` implementations now, GPIO/OLED implementations in Phase 1
+- Hardware abstraction layer: `Input` and `Display` interfaces with `KeyboardInput`/`TerminalDisplay` implementations now, GPIO/OLED implementations in Phase 1 — *both now written (`input_gpio.py`, `oled.py`), untested on hardware*
 
 **Exit criteria**: full hymn-selection-and-playback session driven from the keyboard, using a handful of sample MP4s.
 **Testing**: Tier 1 of [TESTING.md](TESTING.md) — the whole suite runs on a laptop in a tenth of a second.
@@ -70,7 +102,10 @@ Pi (400 for comfort, or the prototype Zero 2 W) + OLED + keypad + encoder + butt
 
 1. Flash Raspberry Pi OS Lite (64-bit), enable I2C, copy sample hymns
 2. Wire **one peripheral at a time**, each verified before moving on: `pytest -m device` names the pin that is not wired (Tier 2 of [TESTING.md](TESTING.md)). OLED → keypad → encoder → D-pad
-3. Swap the Phase 0 keyboard/terminal implementations for GPIO/OLED ones
+3. Run with the real controls and panel: `alabanza --gpio --oled-device`.
+   Both flags *add* to the keyboard and terminal rather than replacing them, so
+   an SSH session shows what the OLED shows and still has `q` to quit — which is
+   what makes "the encoder does nothing" separable from "the app does nothing"
 4. Audio out through the headphone jack
 
 **Exit criteria**: type `347` on the keypad, see the title on the OLED, hear it on the jack; pause, seek, and speed all work from the physical buttons. *The device is demonstrably real at this point.*

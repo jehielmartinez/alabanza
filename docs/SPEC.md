@@ -20,7 +20,7 @@ Production target: **10 units**, cost-optimized. The library turned out to be 48
 | Storage | 32 GB microSD | OS + app + the 2.1 GB library, with margin |
 | Battery | 2×18650 UPS board (~25 Wh), I2C fuel gauge | 8h+ playback at ~2 W draw; charges in place; usable while charging |
 
-Prototyping continues on the Pi 400 (same architecture, same OS image). **Before committing to 10 boards, one Zero 2 W is bought first** to validate video, Bluetooth, and USB audio on real hardware.
+Prototyping continues on a Pi 4 Model B (same BCM2711 generation, same hardware H.264 decode, same GPIO block, same OS image — see [BUILD-PLAN.md](BUILD-PLAN.md)). **Before committing to 10 boards, one Zero 2 W is bought first** to validate video, Bluetooth, and USB audio on real hardware.
 
 ## Library
 
