@@ -14,7 +14,7 @@ Production target: **10 units**, cost-optimized. The library turned out to be 72
 | Audio out (jack) | USB audio adapter + micro-USB OTG adapter | Zero 2 W has no analog jack; a USB DAC (~$8) is cleaner than the Pi 4's analog out anyway |
 | Video out | mini-HDMI → HDMI adapter | Zero 2 W uses mini-HDMI |
 | Display | 2.42" SSD1309 OLED, 128×64 | Readable at a glance in a dim room, including for older eyes; same driver family as smaller modules |
-| Keypad | 3×4 matrix (0–9, *, #) | Digit entry, and letters for T9 search. No A–D column: nothing needs it |
+| Keypad | 3×4 matrix (0–9, *, #) | Digit entry, and letters for predictive T9 search. No A–D column: nothing needs it |
 | Buttons | A 5-way **D-pad**: ◀ ▶ ▲ ▼ + centre | One familiar part instead of seven loose buttons. ◀▶ seek, ▲▼ adjust, centre plays/pauses |
 | Encoder | Rotary with push button | Wheel = volume, always. Push = menu |
 | Storage | 32 GB microSD | OS + app + the 2.1 GB library, with margin |
@@ -37,7 +37,7 @@ each one is a panel cutout ×10 units and a line on the laminated card.
 
 | Control | Home screen | List screens (menu, Bluetooth, search) |
 |---|---|---|
-| `0`–`9` | hymn number | T9 letters, in search |
+| `0`–`9` | hymn number | T9 letters, in search — one press per letter |
 | `*` | erase a digit — or, with nothing typed, **stop** | back / cancel |
 | `#` | play the selection | confirm |
 | D-pad centre | play / pause | play / pause (menus never take the transport) |
@@ -58,7 +58,19 @@ way an operator queues the next hymn anyway.
 ## Selection
 
 1. **Primary: direct number entry.** Operator types the hymn number; OLED live-updates with number + title; Play or `#` confirms and starts playback.
-2. **Secondary: browse + search.** Scrollable title list (D-pad ▲▼ or the wheel) with T9 multi-tap title search on the keypad, reached from the menu, for when the number isn't known.
+2. **Secondary: browse + search.** Scrollable title list (D-pad ▲▼ or the wheel) with T9 title search on the keypad, reached from the menu, for when the number isn't known.
+
+   **Predictive T9, one press per letter** — not multi-tap. `Cielo` is
+   `2 4 3 5 6`, five presses. Titles are matched by converting each word to
+   its digit sequence, so the list filters from the first key and narrows as
+   you type; the operator reads the results, not the digits.
+
+   Multi-tap was the original wording here and was rejected once the two were
+   compared on hardware. `Cielo` becomes `2 444 33 555 666` — twelve presses
+   on a panel whose whole design goal is fewer of them — and same-key letters
+   need a timeout between them, which is precisely the interaction an older
+   volunteer gets wrong: a pause slightly too short silently yields the wrong
+   letter, with no way to tell why.
 
 ## Playback
 

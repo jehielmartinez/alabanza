@@ -50,6 +50,14 @@ SCREENS = {
         lines=["Buscar: 243_", "> 005 Al Cielo Voy", "  014 Bienvenida da Jesús",
                "  063 Jesús del Cielo"],
     ),
+    # The first thing an operator sees on entering search, and the only place
+    # that teaches predictive T9. It had no golden, so the hint could have
+    # been clipped by the panel without any test noticing.
+    "search_empty": ViewModel(
+        state="alt", status_left="BUSCAR",
+        lines=["Buscar: _", "  1 toque por letra", "  ej: Cielo = 24356"],
+        hint="* borrar",
+    ),
     "menu": ViewModel(
         state="alt", status_left="MENU",
         lines=["> Salida: Bluetooth", "  Bluetooth", "  Buscar por titulo"],

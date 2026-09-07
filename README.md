@@ -63,7 +63,8 @@ The keyboard stands in for them:
 | `r`, `q` | rescan, quit (dev only) |
 
 `↑`/`↓` change the speed while a hymn plays and browse the library when it
-doesn't; T9 title search lives in the menu.
+doesn't; T9 title search lives in the menu — predictive, one press per
+letter, so `Cielo` is `2 4 3 5 6`.
 
 ## Tests
 

@@ -597,9 +597,13 @@ class App:
         results = self.library.search_t9(self.search_query)
         lines = [f"Buscar: {self.search_query}_"]
         if not self.search_query:
-            lines.append("  2-9 = letras (T9)")
+            # An example rather than a rule. This is predictive T9, not
+            # multi-tap, and nothing on the panel said so — the operator's
+            # instinct from a phone is to press 2 three times for "c", which
+            # searches for a different thing entirely and finds nothing.
+            lines += ["  1 toque por letra", "  ej: Cielo = 24356"]
         elif not results:
-            lines.append("  (sin resultados)")
+            lines += ["  (sin resultados)", "  1 toque por letra"]
         else:
             pos = min(self.search_pos, len(results) - 1)
             lines += [
