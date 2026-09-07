@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from .app import App
-from .display import CursesDisplay
+from .display import CursesDisplay, ThreadedDisplay
 from .input_keyboard import read_event
 from .player import Player
 
@@ -51,9 +51,14 @@ def _gpio_input():
 
 
 def _oled_device_display():
-    """The real SSD1309 over I2C (device only)."""
+    """The real SSD1309 over I2C (device only), rendered off the input loop.
+
+    A frame costs ~54 ms over I2C even at 400 kHz, against ~2 ms for
+    everything else in an iteration. Left in the loop it starves the keypad
+    scan and presses go missing.
+    """
     from .oled import OledDisplay
-    return OledDisplay()
+    return ThreadedDisplay(OledDisplay())
 
 
 def _bluetooth_backend(choice: str):
@@ -105,6 +110,9 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
     finally:
         if controls:
             controls.close()
+        for display in displays:
+            if hasattr(display, "close"):
+                display.close()
         bt.close()
         player.shutdown()
 

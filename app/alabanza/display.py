@@ -19,6 +19,7 @@ Menu and search screens replace rows 2-6 with a list.
 """
 
 import curses
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -148,3 +149,61 @@ class CursesDisplay:
             rows.append((split_row(vm.meta_left, vm.meta_right), bold))
         rows.append((vm.hint, dim | curses.A_ITALIC))
         return rows
+
+
+class ThreadedDisplay:
+    """Wraps a slow display so it cannot stall the loop that reads the keys.
+
+    Writing a 128x64 frame over I2C measures 54 ms on the device — 88 ms at
+    worst, and ~90% of a loop iteration. The keypad is scanned in that same
+    loop, so a normal press could land entirely between two scans and simply
+    never be seen. The symptom is having to hit a key several times, and it
+    looks like a bad keypad rather than a busy display.
+
+    Only the *rendering* moves to a thread. The state machine stays
+    synchronous and clock-injected, which is what makes TESTING.md's whole
+    Tier 1 possible; threading that would cost far more than it bought.
+
+    Frames are coalesced rather than queued: if several arrive while one is
+    being drawn, only the newest is kept. A stale frame has no value on a
+    display, and a queue would make the panel lag further behind the longer
+    it fell behind.
+    """
+
+    def __init__(self, inner, name: str = "alabanza-display"):
+        self._inner = inner
+        self._pending: ViewModel | None = None
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self.last_error: Exception | None = None
+        self._thread = threading.Thread(target=self._run, daemon=True, name=name)
+        self._thread.start()
+
+    def render(self, vm: ViewModel) -> None:
+        """Returns immediately — this is the call the input loop pays for."""
+        with self._lock:
+            self._pending = vm
+        self._wake.set()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._wake.wait(0.2)
+            self._wake.clear()
+            with self._lock:
+                vm, self._pending = self._pending, None
+            if vm is None:
+                continue
+            try:
+                self._inner.render(vm)
+            except Exception as exc:            # noqa: BLE001
+                # A panel that fails must not stop the hymns. Remember it so
+                # it can be reported, and keep trying — an I2C glitch is
+                # usually transient, and a dark screen is survivable where a
+                # dead device in the middle of a service is not.
+                self.last_error = exc
+
+    def close(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        self._thread.join(timeout=1.0)

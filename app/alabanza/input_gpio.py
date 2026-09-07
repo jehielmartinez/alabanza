@@ -23,6 +23,7 @@ RESCAN and QUIT are deliberately absent — they are dev conveniences with no
 key on the panel.
 """
 
+import threading
 import time
 from collections import deque
 
@@ -48,9 +49,10 @@ KEYPAD = (
     (Event(Kind.STAR),     Event(Kind.DIGIT, 0), Event(Kind.CONFIRM)),
 )
 
-BOUNCE = 0.02        # gpiozero software debounce on the direct buttons
+BOUNCE = 0.02        # software debounce, both for gpiozero and the matrix
 SEEK_REPEAT = 0.4    # held ◀/▶ repeats at this interval (SPEC: "held = repeat")
 _SETTLE = 50e-6      # let a driven row settle before reading the columns
+SCAN_HZ = 50         # keypad samples per second, on its own thread
 
 
 class _Matrix:
@@ -62,9 +64,11 @@ class _Matrix:
     anyway, but they are insurance against this code, not a licence for it —
     so the idle rows are genuinely released to inputs between reads.
 
-    Debounce is free here. poll() runs once per 50 ms tick and a press is
-    emitted on the not-pressed -> pressed edge between two scans, so contact
-    bounce (~1-5 ms) has always settled by the time the next sample lands.
+    Debounce is explicit. It used to come free: scanning once per 50 ms tick
+    meant bounce had always settled before the next sample. Scanning on its
+    own thread at 50 Hz is twice as fast, and close enough to contact bounce
+    that a press could be counted twice, so each key now ignores a second
+    edge within BOUNCE of its last one.
     """
 
     def __init__(self, rows=KEYPAD_ROWS, cols=KEYPAD_COLS):
@@ -75,6 +79,7 @@ class _Matrix:
         # pulled low — i.e. when a key on the driven row is down.
         self._cols = [DigitalInputDevice(pin, pull_up=True) for pin in cols]
         self._down: set[tuple[int, int]] = set()
+        self._changed: dict[tuple[int, int], float] = {}
 
     @staticmethod
     def _release(row: OutputDevice) -> None:
@@ -102,9 +107,16 @@ class _Matrix:
                 if col.value:
                     down.add((r, c))
             self._release(row)
-        new = down - self._down
+        now = time.monotonic()
+        events = []
+        for key in sorted(down ^ self._down):          # anything that moved
+            if now - self._changed.get(key, -1.0) < BOUNCE:
+                continue
+            self._changed[key] = now
+            if key in down:                            # a press, not a release
+                events.append(KEYPAD[key[0]][key[1]])
         self._down = down
-        return [KEYPAD[r][c] for r, c in sorted(new)]
+        return events
 
     def close(self) -> None:
         for device in (*self._rows, *self._cols):
@@ -137,6 +149,23 @@ class GpioInput:
         self._encoder.when_rotated_clockwise = self._emit(Kind.WHEEL_CW)
         self._encoder.when_rotated_counter_clockwise = self._emit(Kind.WHEEL_CCW)
 
+        # The matrix is scanned on its own thread. Everything else already
+        # arrives by interrupt -- gpiozero's callbacks for the buttons and the
+        # encoder -- so the keypad was the one control whose responsiveness
+        # depended on how busy the app loop happened to be. With a 96 ms OLED
+        # write in that loop it sampled ~6 times a second and dropped presses.
+        self._stop = threading.Event()
+        self._scanner = threading.Thread(target=self._scan_loop, daemon=True,
+                                         name="alabanza-keypad")
+        self._scanner.start()
+
+    def _scan_loop(self) -> None:
+        period = 1.0 / SCAN_HZ
+        while not self._stop.is_set():
+            for event in self._matrix.scan():
+                self._queue.append(event)
+            self._stop.wait(period)
+
     def _emit(self, kind: Kind):
         def push():
             self._queue.append(Event(kind))
@@ -151,13 +180,16 @@ class GpioInput:
         self._buttons.append(button)
 
     def poll(self) -> list[Event]:
-        """Non-blocking: the keypad scan plus whatever the callbacks queued."""
-        events = self._matrix.scan()
+        """Non-blocking, and now genuinely cheap: everything arrives on other
+        threads, so this only drains what they queued."""
+        events = []
         while self._queue:
             events.append(self._queue.popleft())
         return events
 
     def close(self) -> None:
+        self._stop.set()
+        self._scanner.join(timeout=1.0)
         self._matrix.close()
         self._encoder.close()
         for button in self._buttons:
