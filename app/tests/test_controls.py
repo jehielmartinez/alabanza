@@ -224,3 +224,25 @@ class TestTheProjectorNeverShowsNothing:
         rig.app.tick()
         assert rig.app.now_playing is None
         assert rig.player.showing_idle
+
+
+class TestAFrameSurvivesTheHymnEnding:
+    """Every player attribute the view reads is a live call into mpv, and a
+    hymn can end between two of them. This crashed the device: the progress
+    bar read duration once to check it was non-zero and again to divide by
+    it, and the file ended in between."""
+
+    def test_a_duration_that_vanishes_mid_frame_does_not_crash(self, harness):
+        rig = harness()
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        rig.player.position, rig.player.duration = 30.0, 180.0
+
+        # A duration that is truthy when checked and zero when used again --
+        # exactly what mpv does as a file unloads.
+        readings = iter([180.0, 0.0, 0.0, 0.0, 0.0])
+        type(rig.player).duration = property(lambda self: next(readings, 0.0))
+        try:
+            rig.app.tick()          # must not raise ZeroDivisionError
+        finally:
+            del type(rig.player).duration

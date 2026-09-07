@@ -694,14 +694,22 @@ class App:
         entry_match = self.library.get(int(self.entry)) if self.entry else None
 
         if self.now_playing:
-            vm.state = "paused" if p.paused else "playing"
-            vm.status_left = "❚❚ Pausa" if p.paused else "▶ Sonando"
+            # One snapshot, then build the frame from it. Every attribute here
+            # is a live call into mpv, and the hymn can end between two of
+            # them: reading duration twice in the progress expression -- once
+            # to guard against zero, once to divide by -- crashed the app when
+            # a hymn ended in that gap. Snapshotting also stops a single frame
+            # showing a position and a duration measured moments apart.
+            paused = p.paused
+            position, duration, speed = p.position, p.duration, p.speed
+            vm.state = "paused" if paused else "playing"
+            vm.status_left = "❚❚ Pausa" if paused else "▶ Sonando"
             vm.title = f"{self.now_playing.number:03d} · {self.now_playing.title}"
             vm.subtitle = entry_match.title if entry_match else ""
-            vm.progress = (p.position / p.duration) if p.duration else 0.0
-            vm.time_pos = _fmt_time(p.position)
-            vm.time_dur = _fmt_time(p.duration)
-            vm.meta_left = f"Vel {round(p.speed * 100)}%"
+            vm.progress = (position / duration) if duration else 0.0
+            vm.time_pos = _fmt_time(position)
+            vm.time_dur = _fmt_time(duration)
+            vm.meta_left = f"Vel {round(speed * 100)}%"
             vm.meta_right = entry_label
         else:
             vm.state = "idle"
