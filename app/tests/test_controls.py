@@ -198,3 +198,29 @@ class TestNumberEntry:
         vm = rig.press(Kind.CONFIRM)
         assert rig.app.now_playing.number == 14
         assert vm.title.startswith("014")
+
+
+class TestTheProjectorNeverShowsNothing:
+    """SPEC decision 8: HDMI shows the static image on boot, idle and stop,
+    and fullscreen video only while a hymn plays. A black screen in a lit
+    hall reads as a broken device, so every exit from playback has to put
+    the image back — including the one nobody presses a button for."""
+
+    def test_stopping_returns_to_the_image(self, harness):
+        rig = harness()
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        assert rig.player.active
+        rig.press(Kind.STAR)
+        assert rig.player.showing_idle
+
+    def test_a_hymn_ending_on_its_own_returns_to_the_image(self, harness):
+        """The path with no keypress behind it: the file simply runs out.
+        Missed here, HDMI would hold a black frame until someone acted."""
+        rig = harness()
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        rig.player.finish()
+        rig.app.tick()
+        assert rig.app.now_playing is None
+        assert rig.player.showing_idle

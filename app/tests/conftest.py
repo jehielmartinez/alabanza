@@ -43,18 +43,30 @@ class FakePlayer:
         self.audio_devices: list[tuple[str, str]] = []
         self.played: list = []
         self.seeks: list[float] = []
+        self.showing_idle = False
 
     def play(self, path):
         self.played.append(path)
         self.active = True
         self.paused = False
+        self.showing_idle = False
         self.speed = 1.0        # spec: speed resets per hymn
+
+    def show_idle(self):
+        self.showing_idle = True
 
     def toggle_pause(self):
         if self.active:
             self.paused = not self.paused
 
     def stop(self):
+        self.active = False
+        self.paused = False
+        self.showing_idle = True
+
+    def finish(self):
+        """The hymn reaches its end on its own, as distinct from being
+        stopped. The real player unloads the file and app.tick() notices."""
         self.active = False
         self.paused = False
 

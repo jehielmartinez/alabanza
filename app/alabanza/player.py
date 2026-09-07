@@ -24,35 +24,72 @@ import mpv  # noqa: E402
 SPEED_MIN, SPEED_MAX, SPEED_STEP = 0.75, 1.25, 0.05
 SEEK_STEP_SECONDS = 10
 
+# Shown on HDMI whenever no hymn is on screen — boot, idle and stop, per
+# SPEC.md decision 8. Replaceable: pass another path to Player, or overwrite
+# this file. The packaged one is the built-in fallback.
+IDLE_IMAGE = Path(__file__).parent / "assets" / "screensaver.png"
+
+
+def _drm_device() -> str | None:
+    """The DRM card with something actually plugged into it, or None.
+
+    Card numbering is not stable across boots — the same Pi 4 had its HDMI on
+    card0 one boot and card1 the next — so the card is found by asking which
+    one owns a connector reporting `connected`, never by hardcoding a path.
+    """
+    for status in sorted(Path("/sys/class/drm").glob("card*/status")):
+        try:
+            if status.read_text().strip() != "connected":
+                continue
+        except OSError:
+            continue
+        card = status.parent.name.split("-", 1)[0]      # card1-HDMI-A-2 -> card1
+        node = Path("/dev/dri") / card
+        if node.exists():
+            return str(node)
+    return None
+
 
 def _video_options() -> dict:
     """mpv's video settings for whatever machine this is.
 
     On the device there is no window system at all, so video goes straight to
     DRM/KMS — which is what makes SPEC decision 8's "fullscreen video, zero
-    overlays" easy rather than a fight with a compositor.
+    overlays" a configuration rather than a fight with a compositor.
 
-    `hwdec` has to name the decoder. mpv's own `auto` probes CUDA and Vulkan,
-    finds neither on a Pi, and falls back to software without complaint; the
-    Pi's H.264 block is reached through V4L2 M2M and is never tried. Measured
-    on the Pi 4 bench: load 0.62 with `v4l2m2m-copy` against 1.65 without, on
-    the same 720p file. The Zero 2 W has roughly a quarter of that CPU, so
-    this setting is the difference between decision 16 holding and not.
+    Two things have to be explicit or the appliance misbehaves:
 
-    Returns nothing on a dev machine: macOS has no DRM, and a Linux desktop
-    with a display server should keep mpv's own windowed defaults.
+    `hwdec` must name the decoder. mpv's `auto` probes CUDA and Vulkan, finds
+    neither on a Pi, and falls back to software without complaint; the Pi's
+    H.264 block is reached through V4L2 M2M and is never tried. Measured on
+    the Pi 4 bench, same 720p file: load 0.62 with `v4l2m2m-copy` against 1.65
+    without. The Zero 2 W has a quarter of that CPU, so this is the difference
+    between SPEC decision 16 holding and not.
+
+    And **video is only requested when a display is actually connected**. With
+    `vo=drm` and nothing plugged in, mpv fails to open the output and then
+    loads no file at all — not even the audio track. The device would sit
+    silent whenever it was used without a projector, which SPEC's "when no
+    HDMI is connected, playback is audio-only" explicitly allows for. So an
+    absent display means no video options, and mpv plays the audio.
+
+    Returns nothing on a dev machine either: macOS has no DRM, and a Linux
+    desktop with a display server keeps mpv's own windowed defaults.
     """
     if sys.platform != "linux":
         return {}
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return {}
-    if not Path("/dev/dri").exists():
+    device = _drm_device()
+    if device is None:
         return {}
-    return {"vo": "drm", "hwdec": "v4l2m2m-copy"}
+    return {"vo": "drm", "drm_device": device, "hwdec": "v4l2m2m-copy"}
 
 
 class Player:
-    def __init__(self, video: bool = True):
+    def __init__(self, video: bool = True, idle_image: Path | None = None):
+        self._idle_image = IDLE_IMAGE if idle_image is None else idle_image
+        self._showing_idle = False
         self._mpv = mpv.MPV(
             vid="auto" if video else "no",
             osc=False,
@@ -62,12 +99,32 @@ class Player:
             **(_video_options() if video else {}),
         )
         self._mpv.volume = 80
+        if video:
+            # Without this an image would be shown for one second and then
+            # unloaded, leaving a black screen.
+            self._mpv["image-display-duration"] = "inf"
+            self.show_idle()
 
     # -- lifecycle -----------------------------------------------------
     def play(self, path: Path) -> None:
+        self._showing_idle = False
         self._mpv.speed = 1.0  # spec: speed resets per hymn
         self._mpv.play(str(path))
         self._mpv.pause = False
+
+    def show_idle(self) -> None:
+        """Put the static image back on HDMI.
+
+        The image goes through the same mpv instance the hymns use, so
+        swapping between them is one load and the screen never blanks in
+        between. It is loaded like any other file, which is why `active` has
+        to exclude it: the whole state machine reads `active` as "a hymn is
+        loaded", and an idle picture must not look like one.
+        """
+        if self._idle_image and self._idle_image.exists():
+            self._mpv.play(str(self._idle_image))
+            self._mpv.pause = False
+            self._showing_idle = True
 
     def toggle_pause(self) -> None:
         if self.active:
@@ -75,6 +132,7 @@ class Player:
 
     def stop(self) -> None:
         self._mpv.stop()
+        self.show_idle()
 
     def shutdown(self) -> None:
         self._mpv.terminate()
@@ -82,8 +140,13 @@ class Player:
     # -- state ---------------------------------------------------------
     @property
     def active(self) -> bool:
-        """A file is loaded (playing or paused)."""
-        return self._mpv.filename is not None
+        """A *hymn* is loaded (playing or paused).
+
+        The idle image is loaded in mpv too, and deliberately does not count:
+        every caller means "is a hymn on" — whether Play pauses, whether Stop
+        has anything to stop, whether a lost speaker should pause playback.
+        """
+        return self._mpv.filename is not None and not self._showing_idle
 
     @property
     def paused(self) -> bool:

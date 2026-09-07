@@ -573,7 +573,8 @@ class App:
         self._bt_poll()
         self._save_if_due()
         if self.now_playing and not self.player.active:
-            self.now_playing = None  # hymn finished on its own
+            self.now_playing = None       # hymn finished on its own
+            self.player.show_idle()       # ...and HDMI goes back to the image
 
         if self.mode is Mode.SEARCH:
             return self._view_search()
