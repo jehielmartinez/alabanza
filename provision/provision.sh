@@ -220,6 +220,26 @@ monitor.bluez.properties = {
 WPCODEC
 ok "Bluetooth codec preference: SBC-XQ before SBC"
 
+# WirePlumber starts every new sink at 40% -- its own default, and about 24 dB
+# of attenuation before a sample leaves the Pi. On this device that is silently
+# wrong: the encoder is the volume control, the app's 100% should mean 100%,
+# and the operator's only recourse otherwise is to turn the speaker up until
+# the noise floor comes with it. Sinks start at unity; the encoder does the
+# attenuating.
+sudo tee /etc/wireplumber/wireplumber.conf.d/52-alabanza-volume.conf >/dev/null <<'WPVOL'
+# Alabanza: new sinks at full scale -- volume belongs to the encoder.
+wireplumber.settings = {
+  device.routes.default-sink-volume = 1.0
+}
+WPVOL
+ok "new sinks default to 100%"
+
+# Existing sinks keep whatever WirePlumber stored for them, so fix them too.
+for sink in $(pactl list sinks short 2>/dev/null | cut -f1); do
+    pactl set-sink-volume "$sink" 100% 2>/dev/null || true
+done
+ok "existing sinks set to 100%"
+
 # Installing SPA plugins does not make a running PipeWire notice them, so the
 # stack is restarted after packages, not before.
 systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true
