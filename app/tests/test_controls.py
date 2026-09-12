@@ -340,3 +340,24 @@ class TestHoldingTheKnobPowersOff:
         assert "Apagar" in rig.app.tick().lines[-1]
         rig.press(Kind.CONFIRM)
         assert rig.app.shutdown_requested
+
+
+class TestTheAppRunsWithoutATerminal:
+    """The appliance is started by systemd at boot, where there is no tty.
+    Getting this wrong is invisible: curses.initscr() raises "setupterm:
+    could not find terminal", Restart=always restarts it every 3 s for ever,
+    and `systemctl is-active` keeps reporting "active" because it lands in
+    the gap between restarts. The unit looks healthy and the device is dead."""
+
+    def test_no_tty_means_headless(self):
+        from alabanza.__main__ import is_headless
+        assert is_headless(False, stdout_isatty=False)
+
+    def test_a_terminal_keeps_the_curses_view(self):
+        from alabanza.__main__ import is_headless
+        assert not is_headless(False, stdout_isatty=True)
+
+    def test_the_flag_forces_it_on_a_terminal(self):
+        """So the boot configuration can be exercised over SSH."""
+        from alabanza.__main__ import is_headless
+        assert is_headless(True, stdout_isatty=True)

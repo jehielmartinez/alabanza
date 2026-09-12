@@ -8,17 +8,38 @@
 On the Pi (Phase 1), --gpio adds the real controls and --oled-device the real
 panel. Both *add* to the keyboard and terminal rather than replacing them, so
 a bench session over SSH shows what the OLED shows and still has `q` to quit.
+
+Started by systemd at boot there is no terminal at all, and the app runs
+headless with the OLED as its only display. That is detected, not declared
+-- see main().
 """
 
 import argparse
 import curses
+import signal
 import sys
+import time
 from pathlib import Path
 
 from .app import App
 from .display import CursesDisplay, ThreadedDisplay
 from .input_keyboard import read_event
 from .player import Player
+
+def is_headless(explicit: bool, stdout_isatty: bool) -> bool:
+    """Whether to skip the terminal UI entirely.
+
+    Detected rather than left to a flag, because the failure it prevents is
+    silent: `curses.initscr()` under systemd raises "setupterm: could not
+    find terminal", and with Restart=always the unit then crash-loops every
+    RestartSec for ever while `systemctl is-active` still says "active" —
+    it keeps catching the gap between restarts. A unit file that forgot the
+    flag would look like it was working.
+
+    It also means a piped run does not try to draw a TUI into a pipe.
+    """
+    return explicit or not stdout_isatty
+
 
 _TOOLS = Path(__file__).resolve().parents[2] / "tools"
 # provisioned library first; raw downloads as dev fallback
@@ -91,6 +112,18 @@ def _power_off() -> None:
           file=sys.stderr)
 
 
+def _stop_cleanly(signum, frame):
+    """Turn systemd's SIGTERM into the exception the cleanup path expects.
+
+    SIGTERM's default action kills the process outright: no `finally`, so
+    OledDisplay.close() never runs and the panel keeps its last frame lit on
+    a device that is off — the exact state that close()'s docstring exists to
+    prevent, since a halted Pi still powers the 3.3 V rail. Raising here lets
+    `systemctl stop`, Ctrl+C and a clean menu exit share one path.
+    """
+    raise KeyboardInterrupt
+
+
 def _bluetooth_backend(choice: str):
     from .bluetooth import NullBackend
 
@@ -108,13 +141,20 @@ def _bluetooth_backend(choice: str):
     return NullBackend()
 
 
-def run(screen: "curses.window", library_dir: Path, video: bool,
+def run(screen: "curses.window | None", library_dir: Path, video: bool,
         settings_path: Path, oled: bool, bt_choice: str, gpio: bool,
         oled_device: bool) -> bool:
-    """Returns True if the operator asked for the device to power off."""
-    screen.timeout(TICK_MS)
-    screen.keypad(True)
-    displays = [CursesDisplay(screen)]
+    """Returns True if the operator asked for the device to power off.
+
+    `screen` is None when there is no terminal to draw on — the appliance as
+    systemd starts it. The OLED is then the only display, which is what the
+    product is anyway; the curses view is the development convenience.
+    """
+    displays: list = []
+    if screen is not None:
+        screen.timeout(TICK_MS)
+        screen.keypad(True)
+        displays.append(CursesDisplay(screen))
     if oled:
         displays.append(_oled_emulator_display())
     if oled_device:
@@ -127,11 +167,17 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
         app.flash(f"{len(app.library.warnings)} library warnings", 4)
     try:
         while not app.quit_requested:
-            # getch blocks up to TICK_MS and is what paces the loop, so it
-            # stays in the path even when the real controls are wired.
-            event = read_event(screen)
-            if event:
-                app.handle(event)
+            if screen is not None:
+                # getch blocks up to TICK_MS and is what paces the loop, so it
+                # stays in the path even when the real controls are wired.
+                event = read_event(screen)
+                if event:
+                    app.handle(event)
+            else:
+                # Nothing in the headless loop blocks, so the tick has to be
+                # paced here instead. Without this it spins a core flat out
+                # and starves the keypad scan thread it shares the GIL with.
+                time.sleep(TICK_MS / 1000)
             if controls:
                 for event in controls.poll():
                     app.handle(event)
@@ -174,10 +220,27 @@ def main() -> int:
     parser.add_argument("--oled-device", action="store_true",
                         help="also draw on the real SSD1309 over I2C "
                              "(device only)")
+    parser.add_argument("--headless", action="store_true",
+                        help="no terminal UI at all; the OLED is the only "
+                             "display (implied when stdout is not a tty)")
     args = parser.parse_args()
-    shutdown = curses.wrapper(run, args.library, not args.no_video,
-                              args.settings, args.oled, args.bt, args.gpio,
-                              args.oled_device)
+    signal.signal(signal.SIGTERM, _stop_cleanly)
+
+    headless = is_headless(args.headless, sys.stdout.isatty())
+    if headless and not (args.oled or args.oled_device):
+        print("warning: headless with no panel — nothing will be displayed",
+              file=sys.stderr)
+    try:
+        if headless:
+            shutdown = run(None, args.library, not args.no_video,
+                           args.settings, args.oled, args.bt, args.gpio,
+                           args.oled_device)
+        else:
+            shutdown = curses.wrapper(run, args.library, not args.no_video,
+                                      args.settings, args.oled, args.bt,
+                                      args.gpio, args.oled_device)
+    except KeyboardInterrupt:
+        return 0                    # Ctrl+C, or systemd stopping the unit
     # After curses has restored the terminal, so a failure is readable.
     if shutdown:
         _power_off()
