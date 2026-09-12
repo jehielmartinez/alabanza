@@ -16,15 +16,28 @@ headless with the OLED as its only display. That is detected, not declared
 
 import argparse
 import curses
+import logging
 import signal
 import sys
 import time
 from pathlib import Path
 
-from .app import App
-from .display import CursesDisplay, ThreadedDisplay
+from .display import CursesDisplay, ThreadedDisplay, ViewModel
 from .input_keyboard import read_event
-from .player import Player
+
+# The player and the state machine are imported inside run(), not here. On
+# the Zero W, `import mpv` alone costs ten seconds -- the dynamic linker
+# resolving libmpv's 225 shared objects on one ARM11 core -- and gpiozero,
+# dbus-fast and the rest add five more. Imported at module level, all of that
+# happens before the panel is even opened, so the operator watches a dark
+# box for a quarter of a minute after the service has started. Deferring
+# them lets the panel show "Iniciando" first.
+
+log = logging.getLogger("alabanza")
+
+# What the panel shows while the heavy imports run. `lines` takes the list
+# layout, which is the plainest thing render() draws: no marquee, no icons.
+BOOT_VIEW = ViewModel(state="alt", lines=["Alabanza", "Iniciando..."])
 
 def is_headless(explicit: bool, stdout_isatty: bool) -> bool:
     """Whether to skip the terminal UI entirely.
@@ -112,6 +125,28 @@ def _power_off() -> None:
           file=sys.stderr)
 
 
+def _mark_ready() -> None:
+    """Tell the system the app is up, by touching a file.
+
+    On the Zero W the network is deliberately kept off the boot path: on one
+    core it costs the app twenty seconds if the two start together. A systemd
+    path unit installed by provision.sh watches for this file and starts
+    NetworkManager the moment it appears -- so Wi-Fi (and SSH) come up right
+    after the panel, not before it and not on a guessed timer. The runtime
+    directory is per-user tmpfs, so the file is gone on every boot, and a
+    machine without one (a laptop, the Pi 4 bench) just skips this.
+    """
+    import os
+
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime_dir:
+        return
+    try:
+        (Path(runtime_dir) / "alabanza.ready").touch()
+    except OSError as exc:
+        log.warning("could not write the ready marker: %s", exc)
+
+
 def _stop_cleanly(signum, frame):
     """Turn systemd's SIGTERM into the exception the cleanup path expects.
 
@@ -150,6 +185,7 @@ def run(screen: "curses.window | None", library_dir: Path, video: bool,
     systemd starts it. The OLED is then the only display, which is what the
     product is anyway; the curses view is the development convenience.
     """
+    started = time.monotonic()
     displays: list = []
     if screen is not None:
         screen.timeout(TICK_MS)
@@ -159,10 +195,25 @@ def run(screen: "curses.window | None", library_dir: Path, video: bool,
         displays.append(_oled_emulator_display())
     if oled_device:
         displays.append(_oled_device_display())
+    # The panel is lit before anything slow happens, so a box that has been
+    # switched on looks switched on. Everything below this line is seconds
+    # on a Zero W, and the timings go to the journal so a slow boot can be
+    # read rather than guessed at.
+    for display in displays:
+        display.render(BOOT_VIEW)
+    log.info("panel up after %.1fs", time.monotonic() - started)
+
     controls = _gpio_input() if gpio else None
+    log.info("controls ready after %.1fs", time.monotonic() - started)
+    from .player import Player
     player = Player(video=video)
+    log.info("player ready after %.1fs", time.monotonic() - started)
     bt = _bluetooth_backend(bt_choice)
+    from .app import App
     app = App(library_dir, player, settings_path, bt)
+    log.info("ready after %.1fs (%d hymns)", time.monotonic() - started,
+             len(app.library.hymns))
+    _mark_ready()
     if app.library.warnings:
         app.flash(f"{len(app.library.warnings)} library warnings", 4)
     try:
@@ -227,6 +278,12 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _stop_cleanly)
 
     headless = is_headless(args.headless, sys.stdout.isatty())
+    # Headless means the journal is the only place a message can go, so the
+    # startup milestones and the keypad warnings are sent there. With a
+    # terminal the screen is curses' and a log line would corrupt it.
+    if headless:
+        logging.basicConfig(level=logging.INFO,
+                            format="%(name)s: %(message)s", stream=sys.stderr)
     if headless and not (args.oled or args.oled_device):
         print("warning: headless with no panel — nothing will be displayed",
               file=sys.stderr)

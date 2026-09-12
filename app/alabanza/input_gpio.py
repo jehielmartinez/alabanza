@@ -61,7 +61,11 @@ log = logging.getLogger(__name__)
 BOUNCE = 0.02        # software debounce, both for gpiozero and the matrix
 SEEK_REPEAT = 0.4    # held ◀/▶ repeats at this interval (SPEC: "held = repeat")
 _SETTLE = 50e-6      # let a driven row settle before reading the columns
-SCAN_HZ = 50         # keypad samples per second, on its own thread
+# Keypad samples per second, on its own thread. 50 Hz once; 30 Hz since the
+# Zero W, where each wake-up of the thread is Python and scheduler overhead
+# on the only core. 33 ms is still far below any human press, and BOUNCE is
+# unaffected: it measures time between changes, not passes.
+SCAN_HZ = 30
 HELD_REPEAT = 0.25   # how often a held encoder push re-announces itself
 FAULT_AFTER = 25     # consecutive failed scans (~0.5 s) before the panel hears
 FAULT_PERIOD = 0.5   # retry interval once the keypad is given up for lost
@@ -98,6 +102,35 @@ class _Matrix:
         self._cols = [DigitalInputDevice(pin, pull_up=True) for pin in cols]
         self._down: set[tuple[int, int]] = set()
         self._changed: dict[tuple[int, int], float] = {}
+        # The scan talks to lgpio directly when it can. Through gpiozero a
+        # row costs a dozen Python-level calls -- function, state, pull, and
+        # a mode query behind every column read -- which profiled as the
+        # single largest consumer of the Zero W's core at idle. Six C calls
+        # do the same job. gpiozero still owns the pins (claiming, closing,
+        # the fault diagnostics in modes()); this only borrows its handle.
+        self._lg = self._h = None
+        factory = self._rows[0].pin.factory
+        if hasattr(factory, "_handle"):
+            try:
+                import lgpio
+            except ImportError:
+                lgpio = None
+            if lgpio is not None:
+                self._lg, self._h = lgpio, factory._handle
+                self._row_nums = [row.pin._number for row in self._rows]
+                self._col_nums = [col.pin._number for col in self._cols]
+                # Rows become open-drain outputs, claimed once. The BCM2835
+                # has no open-drain hardware; the kernel emulates it, and
+                # its emulation is exactly _release(): writing 1 turns the
+                # line into an input with no pull, writing 0 drives it low.
+                # Measured on the Zero W: 38 us per write against 529 us
+                # for the claim-free-claim a pass used to do per row, which
+                # was most of the keypad thread's cost.
+                for row in self._row_nums:
+                    lgpio.gpio_free(self._h, row)
+                    lgpio.gpio_claim_output(
+                        self._h, row, 1,
+                        lgpio.SET_OPEN_DRAIN | lgpio.SET_PULL_NONE)
 
     @staticmethod
     def _release(row: OutputDevice) -> None:
@@ -116,6 +149,8 @@ class _Matrix:
 
     def scan(self) -> list[Event]:
         """One full pass. Returns the events for keys pressed since the last."""
+        if self._lg is not None:
+            return self._events(self._scan_direct())
         down = set()
         for r, row in enumerate(self._rows):
             row.pin.function = "output"
@@ -125,6 +160,32 @@ class _Matrix:
                 if col.value:
                     down.add((r, c))
             self._release(row)
+        return self._events(down)
+
+    def _scan_direct(self) -> set[tuple[int, int]]:
+        """The same pass as scan(), straight through lgpio.
+
+        Drive a row low, read the columns (pulled up, so a pressed key reads
+        0), then release it -- which on an open-drain row is writing 1.
+
+        No settle sleep here, unlike the gpiozero path. The write is an
+        ioctl that returns ~38 us after the line has moved, against a settle
+        time of a few microseconds through the key and the pull-up -- and
+        time.sleep(50e-6) measured 190 us on the Zero W, more than the rest
+        of the pass put together (1.30 ms with it, 0.55 ms without).
+        """
+        lg, h = self._lg, self._h
+        down = set()
+        for r, row in enumerate(self._row_nums):
+            lg.gpio_write(h, row, 0)
+            for c, col in enumerate(self._col_nums):
+                if lg.gpio_read(h, col) == 0:
+                    down.add((r, c))
+            lg.gpio_write(h, row, 1)
+        return down
+
+    def _events(self, down: set[tuple[int, int]]) -> list[Event]:
+        """Debounced presses for whatever changed since the last pass."""
         now = time.monotonic()
         events = []
         for key in sorted(down ^ self._down):          # anything that moved
@@ -169,6 +230,13 @@ class _Matrix:
         caller is retrying against — raising here would replace the error
         being recovered from with a less informative one.
         """
+        if self._lg is not None:
+            for row in self._row_nums:
+                try:
+                    self._lg.gpio_write(self._h, row, 1)
+                except Exception as exc:        # noqa: BLE001 - see docstring
+                    log.debug("release of BCM%d failed: %s", row, exc)
+            return
         for row in self._rows:
             try:
                 self._release(row)

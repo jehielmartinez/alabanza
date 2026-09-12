@@ -169,6 +169,177 @@ JCONF
     fi
 fi
 
+# --- 1b. boot time --------------------------------------------------------
+#
+# Measured on the Zero W: 2 min 9 s from power to the user session, and the
+# app cannot start before the session does. Three things own most of it,
+# none of them needed by an appliance, and all of them are ~10x cheaper on a
+# Pi 4 which is why nobody noticed there.
+
+step "Trimming the boot"
+
+# cloud-init is how Raspberry Pi Imager applies the user, hostname, Wi-Fi
+# and SSH key on the very first boot, and Pi OS keeps running it on every
+# boot after that: 23 s of the sysinit critical chain on the Zero W, doing
+# nothing. The documented off switch is this file. The settings it applied
+# are already persisted (netplan yaml, NM keyfiles), so it is safe once
+# `cloud-init status` says done -- which it has by the time this runs.
+if [ -d /etc/cloud ]; then
+    if [ -e /etc/cloud/cloud-init.disabled ]; then
+        ok "cloud-init already disabled"
+    else
+        sudo touch /etc/cloud/cloud-init.disabled
+        ok "cloud-init disabled — it had finished its first-boot job"
+    fi
+fi
+
+# NetworkManager-wait-online holds network-online.target (and so
+# multi-user.target) until Wi-Fi has an address. Nothing on the box waits
+# for that; the app does not use the network at all.
+if [ "$(systemctl is-enabled NetworkManager-wait-online 2>/dev/null)" = "enabled" ]; then
+    sudo systemctl disable NetworkManager-wait-online >/dev/null 2>&1
+    ok "NetworkManager-wait-online disabled"
+else
+    ok "NetworkManager-wait-online already off"
+fi
+
+# Pi OS's NetworkManager keeps its profiles in netplan. At every start it
+# rewrites one yaml per profile, and each rewrite runs netplan's generator,
+# which ends with a systemd daemon-reload: 6.6 s each on the Zero W, four
+# profiles, 44 s. One of those is an Ethernet profile on a board with no
+# Ethernet port -- deleted here, on boards without eth0 only.
+if [ ! -e /sys/class/net/eth0 ] && nmcli -t -f NAME connection show 2>/dev/null | grep -qx "netplan-eth0"; then
+    sudo nmcli connection delete netplan-eth0 >/dev/null 2>&1 \
+        && ok "removed the unused Ethernet profile (no eth0 on this board)"
+else
+    ok "no unused Ethernet profile"
+fi
+
+# The user session -- and with it PipeWire and the app -- is gated on
+# systemd-user-sessions.service, which upstream orders after network.target
+# so that remote logins find the network up. That is the wrong trade here:
+# the panel waits a minute for Wi-Fi it will never use. A drop-in cannot
+# subtract from After=, so the unit is copied to /etc with network.target
+# taken out of its ordering. SSH is unaffected -- sshd has its own ordering
+# and users can still log in once it is up. Revisit if a systemd upgrade
+# changes the upstream unit; `systemd-delta` shows the override.
+USER_SESSIONS_SRC=/usr/lib/systemd/system/systemd-user-sessions.service
+USER_SESSIONS_DST=/etc/systemd/system/systemd-user-sessions.service
+if [ -f "$USER_SESSIONS_SRC" ]; then
+    if [ -f "$USER_SESSIONS_DST" ] && ! grep -q "network.target" "$USER_SESSIONS_DST"; then
+        ok "user sessions already decoupled from the network"
+    else
+        sed -E 's/[[:space:]]*network\.target//' "$USER_SESSIONS_SRC" \
+            | sudo tee "$USER_SESSIONS_DST" >/dev/null
+        sudo systemctl daemon-reload
+        ok "user sessions no longer wait for the network (override in /etc)"
+    fi
+fi
+
+# Services an appliance does not need, each measured on the Zero W's one
+# core. e2scrub_reap reaps LVM snapshots left by online ext4 checks (39 s
+# of CPU at boot; there is no LVM here). keyboard-setup configures a console
+# keyboard for a box with no keyboard or console. rpi-eeprom-update is for
+# boards with a boot EEPROM, which the Zero W is not. The timers are the
+# daily apt, man-db and dpkg housekeeping: the device is never online, so
+# they would only ever steal the core in the middle of a service.
+# fstrim.timer stays -- weekly trim is good for the SD card.
+APPLIANCE_OFF=(e2scrub_reap.service keyboard-setup.service e2scrub_all.timer
+               apt-daily.timer apt-daily-upgrade.timer man-db.timer
+               dpkg-db-backup.timer)
+[ "$ARCH" = "armv6l" ] && APPLIANCE_OFF+=(rpi-eeprom-update.service)
+TURNED_OFF=()
+for unit in "${APPLIANCE_OFF[@]}"; do
+    case "$(systemctl is-enabled "$unit" 2>/dev/null)" in
+        enabled|static|indirect)
+            sudo systemctl disable --now "$unit" >/dev/null 2>&1 || true
+            sudo systemctl mask "$unit" >/dev/null 2>&1 || true
+            TURNED_OFF+=("$unit") ;;
+    esac
+done
+if [ ${#TURNED_OFF[@]} -eq 0 ]; then
+    ok "appliance-irrelevant services already off"
+else
+    ok "turned off: ${TURNED_OFF[*]}"
+fi
+
+# One core, and at boot everything wants it at once: NetworkManager,
+# wpa_supplicant, netplan's generator and the daemon-reloads it triggers,
+# journald -- and the app. Measured on the Zero W after the fixes above: the
+# app took 40 s to be ready when contended against 14 s alone. The panel is
+# the product and the network is a bench convenience, so the user session
+# (the app, PipeWire) gets ten times the CPU weight of system services, and
+# the network stack is niced besides. Neither changes anything when the
+# core is idle; SSH just comes up a little later while the app is starting.
+if [ "$(systemctl show user.slice -p CPUWeight --value)" = "1000" ]; then
+    ok "user session already weighted over system services"
+else
+    sudo systemctl set-property user.slice CPUWeight=1000 >/dev/null 2>&1
+    sudo systemctl set-property system.slice CPUWeight=100 >/dev/null 2>&1
+    ok "user session weighted 10:1 over system services"
+fi
+sudo mkdir -p /etc/systemd/system/NetworkManager.service.d \
+             /etc/systemd/system/wpa_supplicant.service.d
+for svc in NetworkManager wpa_supplicant; do
+    sudo tee /etc/systemd/system/$svc.service.d/50-alabanza-nice.conf >/dev/null <<'NICE'
+# Alabanza: the panel comes first on a single core -- see provision/README.md
+[Service]
+Nice=10
+NICE
+done
+sudo systemctl daemon-reload
+ok "NetworkManager and wpa_supplicant niced"
+
+# The device is never on the internet (SPEC): Wi-Fi exists so the bench can
+# SSH in and push updates, nothing else. On the Zero W even a niced network
+# stack costs the app 20 s at boot, so there NetworkManager is taken off the
+# boot path entirely and started when the app says it is ready: it touches
+# $XDG_RUNTIME_DIR/alabanza.ready (see _mark_ready in app/alabanza/__main__.py)
+# and a path unit watches for it. A timer was tried first and fired at a
+# guessed 45 s -- into the middle of the app's startup, since the session
+# itself does not start at a fixed time. The fallback timer below is only
+# for a box where the app never gets to ready: a crash loop must still be
+# reachable over SSH.
+if [ "$ARCH" = "armv6l" ]; then
+    UID_NUM="$(id -u)"
+    sudo tee /etc/systemd/system/alabanza-network.service >/dev/null <<'NETUNIT'
+# Alabanza: bring the network up after the app -- see provision/README.md
+[Unit]
+Description=Start the network once the hymn player is up
+[Service]
+Type=oneshot
+# RemainAfterExit: a path unit re-fires for as long as its condition holds
+# and its service is not active. Without this the marker (which stays for
+# the whole boot) retriggered the start every few seconds until systemd's
+# start limit tripped. --no-block: NetworkManager takes a while to become
+# active on this board and nothing here needs to wait for it.
+RemainAfterExit=yes
+ExecStart=/usr/bin/systemctl start --no-block NetworkManager.service
+NETUNIT
+    sudo tee /etc/systemd/system/alabanza-network.path >/dev/null <<NETPATH
+[Unit]
+Description=Watch for the hymn player's ready marker
+[Path]
+PathExists=/run/user/$UID_NUM/alabanza.ready
+Unit=alabanza-network.service
+[Install]
+WantedBy=multi-user.target
+NETPATH
+    sudo tee /etc/systemd/system/alabanza-network.timer >/dev/null <<'NETTIMER'
+[Unit]
+Description=Fallback: bring the network up 3 min into boot even if the app never got ready
+[Timer]
+OnBootSec=180s
+AccuracySec=5s
+[Install]
+WantedBy=timers.target
+NETTIMER
+    sudo systemctl daemon-reload
+    sudo systemctl disable NetworkManager wpa_supplicant >/dev/null 2>&1 || true
+    sudo systemctl enable alabanza-network.path alabanza-network.timer >/dev/null 2>&1
+    ok "network starts when the app reports ready (alabanza-network.path), or at 3 min"
+fi
+
 # --- 2. system packages ---------------------------------------------------
 
 step "Installing system packages"
@@ -304,13 +475,17 @@ ok "WirePlumber seat-monitoring disabled — Bluetooth audio can start headless"
 # The list is ordered: a speaker that does not offer XQ falls back to SBC on
 # its own, so this is safe for whatever the church actually owns.
 sudo tee /etc/wireplumber/wireplumber.conf.d/51-alabanza-bluetooth-codec.conf >/dev/null <<'WPCODEC'
-# Alabanza: prefer the higher-bitpool SBC variant -- see provision/README.md.
+# Alabanza: prefer the higher-bitpool SBC variant, and a 44.1 kHz link so
+# the library is never resampled on the way to the speaker -- see
+# provision/README.md.
 monitor.bluez.properties = {
   bluez5.enable-sbc-xq = true
   bluez5.codecs = [ sbc_xq sbc aac ]
+  bluez5.default.rate = 44100
 }
 WPCODEC
-ok "Bluetooth codec preference: SBC-XQ before SBC"
+rm -f "$HOME/.config/wireplumber/wireplumber.conf.d/51-alabanza-test-rate.conf"
+ok "Bluetooth codec preference: SBC-XQ before SBC, 44.1 kHz link"
 
 # WirePlumber starts every new sink at 40% -- its own default, and about 24 dB
 # of attenuation before a sample leaves the Pi. On this device that is silently
@@ -331,6 +506,52 @@ for sink in $(pactl list sinks short 2>/dev/null | cut -f1); do
     pactl set-sink-volume "$sink" 100% 2>/dev/null || true
 done
 ok "existing sinks set to 100%"
+
+# Real-time priority for the audio threads. PipeWire asks rtkit for it, and
+# rtkit only grants it to processes in an *active* logind session -- the
+# same seat rule that kept WirePlumber's Bluetooth monitor off above. This
+# appliance never has one, so every PipeWire data thread ran at ordinary
+# priority (ps -eLo rtprio showed '-' for all of them) and took its turn
+# behind the app's Python threads. On the Zero W's one core that is the
+# difference between a Bluetooth stream that keeps up and one that skips:
+# the SBC encoder ran at 85-90% of its cycle with underruns climbing.
+# PipeWire's module-rt falls back to setting the priority itself when rtkit
+# refuses, provided the user may: that is the limits file and the group.
+sudo tee /etc/security/limits.d/95-alabanza-pipewire.conf >/dev/null <<'LIMITS'
+# Alabanza: let PipeWire take real-time priority without rtkit (no seat here)
+@pipewire   -  rtprio   95
+@pipewire   -  nice    -19
+@pipewire   -  memlock  4194304
+LIMITS
+if id -nG "$USER" | tr ' ' '\n' | grep -qx pipewire; then
+    ok "$USER is in pipewire (real-time audio allowed)"
+else
+    sudo groupadd -f pipewire
+    sudo usermod -aG pipewire "$USER"
+    warn "added $USER to pipewire — takes effect after a reboot"
+    ADDED=1
+fi
+
+# The graph runs at the library's own rate. The whole library is 44.1 kHz
+# AAC, and PipeWire's default graph is a fixed 48 kHz: every sample was
+# resampled up on the way in and the Bluetooth node resampled it back down
+# to the speaker's 44.1 kHz on the way out, both in software on a core with
+# no NEON. Allowing both rates lets the graph follow the stream. The
+# quantum is doubled as well: fewer, longer cycles cost less on one core,
+# and nothing here needs low latency.
+sudo mkdir -p /etc/pipewire/pipewire.conf.d
+sudo tee /etc/pipewire/pipewire.conf.d/50-alabanza.conf >/dev/null <<'PWCONF'
+# Alabanza: 44.1 kHz library, no resampling, long cycles -- see provision/README.md
+context.properties = {
+    default.clock.rate          = 44100
+    default.clock.allowed-rates = [ 44100 48000 ]
+    default.clock.quantum       = 2048
+    default.clock.min-quantum   = 1024
+    default.clock.max-quantum   = 4096
+}
+PWCONF
+rm -f "$HOME/.config/pipewire/pipewire.conf.d/50-alabanza-test.conf"
+ok "PipeWire graph follows the stream rate, 2048-frame quantum"
 
 # Installing SPA plugins does not make a running PipeWire notice them, so the
 # stack is restarted after packages, not before.

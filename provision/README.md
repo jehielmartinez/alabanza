@@ -200,3 +200,84 @@ only, no rendering), one hymn, 15 s of playback:
 
 So the hardware decoder is mandatory and is not the bottleneck at either
 size; what remains to measure is the render to HDMI through `vo=gpu`.
+
+### Boot time
+
+Measured before any of this: **2 min 9 s** from power to the user session,
+then the app needed 15 s more before the panel lit. Where it went, and what
+`provision.sh` now does about each (the "Trimming the boot" step, applied to
+every board):
+
+| Cost | Cause | Fix |
+|---|---|---|
+| 23 s | cloud-init re-running Imager's first-boot setup every boot | `/etc/cloud/cloud-init.disabled` |
+| 44 s | NetworkManager rewriting 4 netplan profiles at start, each ending in a 6.6 s `daemon-reload` | the unused Ethernet profile is deleted on boards without `eth0` |
+| ~50 s | the user session (PipeWire, the app) ordered after `network.target` | `systemd-user-sessions.service` copied to `/etc` without that ordering |
+| 6 s | `NetworkManager-wait-online` | disabled |
+| 15 s | `import mpv` (9 s: the linker resolving libmpv's 225 libraries) and the device imports, before the panel was opened | the app lights the panel first and imports afterwards |
+| ~10 s | services an appliance never needs, all starting at once with logind: an LVM snapshot reaper (39 s of CPU), console keyboard setup, EEPROM update, and the daily apt / man-db / dpkg timers | disabled and masked |
+| ~25 s | with the session no longer waiting, the app then shared the one core with NetworkManager, wpa_supplicant and the netplan reloads: 40 s to ready against 14 s alone | the user session gets 10× the CPU weight of system services, the network stack is niced, and on the Zero W NetworkManager is off the boot path: `alabanza-network.path` starts it when the app touches its ready marker (a 3-minute timer is the fallback for a crash-looping app) |
+
+The device is never on the internet; Wi-Fi exists for the bench to SSH in
+and push updates. On the Zero W that means SSH becomes available a minute
+or two after power, after the panel, which is the right order for an
+appliance. `systemctl start NetworkManager` brings it up sooner by hand.
+
+The app now logs its milestones to the journal on every start, so a slow
+boot can be read instead of guessed at:
+
+```
+journalctl --user -u alabanza -b | grep "alabanza:"
+alabanza: panel up after 1.0s
+alabanza: controls ready after 2.0s
+alabanza: player ready after 10.2s
+alabanza: ready after 13.8s (517 hymns)
+```
+
+`systemd-analyze critical-chain user@1000.service` shows the system side.
+
+### Bluetooth audio
+
+The first Bluetooth playback on the Zero W skipped constantly. Not the
+radio: `pw-top` showed the Bluetooth sink node busy for **84–91% of every
+graph cycle** with its underrun counter climbing, and WirePlumber (which
+hosts that node) at 19% CPU. Two causes, both resampling on a core with
+no NEON: PipeWire's graph runs at a fixed 48 kHz by default while the whole
+library is 44.1 kHz, so mpv's stream was resampled up on the way in; and
+the speaker had negotiated a 48 kHz link, so the node resampled back down
+on the way out. `provision.sh` now sets both, in `/etc/pipewire` and the
+WirePlumber Bluetooth config:
+
+| Setting | Effect measured during a hymn on the speaker |
+|---|---|
+| graph at 44.1 kHz, allowed rates 44.1/48, quantum 2048 | node busy 5–23%, underruns 0, player 25% → 10% CPU |
+| `bluez5.default.rate = 44100` (a 44.1 kHz A2DP link) | WirePlumber 19% → 7%, node busy 1–9%, box idle 20% → 43% |
+
+It also gives PipeWire real-time priority without rtkit, which refuses a
+headless session for the same seat reason WirePlumber's monitor did; the
+audio threads had been running at ordinary priority, taking turns with the
+app's Python threads.
+
+### Idle CPU
+
+The app is the other half of every boot number above: whatever it burns at
+idle is what the network stack, Bluetooth and a hymn all have to share the
+core with. Measured on the Zero W, idle on the home screen:
+
+| Cost | Cause | Fix |
+|---|---|---|
+| ~20% | the panel re-drawn with PIL text rendering 20× a second, unchanged | an unchanged ViewModel is not drawn; a scrolling marquee still is |
+| ~12% | keypad scan: three kernel line requests per row per pass through gpiozero, plus a 50 µs sleep that costs 190 µs | rows claimed once as open-drain outputs (the kernel's emulation is exactly the Hi-Z release), direct lgpio writes and reads, no sleep, 30 Hz |
+| **12–15%** | **lgpio's alert thread**, which every gpiozero `Button` and the `RotaryEncoder` need: it polls the event descriptors with a tiny timeout and costs this much with a single callback registered and no edges at all | **not fixed** — see below |
+| ~6% | the main loop at 20 Hz | — |
+
+From ~60% to ~30%, of which half is the alert thread. The way out of that
+last one is to stop using gpiozero edge callbacks: either poll the six
+buttons and the encoder from the keypad thread (cheap, but 33 ms sampling
+is marginal for a fast encoder spin), or hand them to the kernel's own
+`rotary-encoder` and `gpio-key` overlays — both ship with Pi OS, the
+drivers are interrupt-driven, and the app would read them from `/dev/input`
+at essentially no cost. The second is the right design for a single-core
+appliance; it is a change to `input_gpio.py`, `config.txt`, the Tier 2
+tests and `alabanza-hwtest`, and needs the EC11's steps-per-detent measured
+on the bench.

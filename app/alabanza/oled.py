@@ -231,6 +231,14 @@ def render(vm: ViewModel, now: float | None = None) -> Image.Image:
     return img
 
 
+def _marquee_active(vm: ViewModel) -> bool:
+    """Whether render() would animate this frame on the clock: a title too
+    wide for the glass scrolls, and only then does an unchanged model still
+    need redrawing."""
+    return (not vm.lines and bool(vm.title)
+            and FONT_TITLE.getlength(vm.title) > WIDTH)
+
+
 class OledDisplay:
     """Display backend for the real SSD1309 (or any luma device)."""
 
@@ -242,6 +250,7 @@ class OledDisplay:
             device = ssd1309(i2c(port=1, address=0x3C))
         self.device = device
         self._last: bytes | None = None
+        self._last_vm: ViewModel | None = None
 
     def close(self) -> None:
         """Blank the panel.
@@ -265,10 +274,17 @@ class OledDisplay:
         # shorter than one iteration is simply never seen: the panel makes the
         # buttons feel broken.
         #
-        # Drawing costs 1.3 ms, so draw always and compare the pixels: the
-        # write only happens when the panel would actually change. Comparing
-        # the rendered image rather than the ViewModel keeps the title marquee
-        # scrolling, since that animates on the clock with the model unchanged.
+        # Drawing costs 1.3 ms on a Pi 4, so it used to draw always and
+        # compare the pixels. On the Zero W the same drawing is ~15 ms of
+        # PIL text rendering, and at twenty frames a second that was a
+        # quarter of the only core spent redrawing the idle screen. So an
+        # unchanged ViewModel is not drawn at all -- unless a marquee is
+        # scrolling, which animates on the clock with the model unchanged.
+        # The pixel compare below still gates the I2C write, which is the
+        # expensive part on every board.
+        if vm == self._last_vm and not _marquee_active(vm):
+            return
+        self._last_vm = vm
         image = render(vm).convert(self.device.mode)
         data = image.tobytes()
         if data == self._last:
