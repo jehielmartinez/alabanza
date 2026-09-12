@@ -3,7 +3,16 @@ name = "alabanza"
 version = "0.1.0"
 description = "Church hymn player appliance (Raspberry Pi)"
 requires-python = ">=3.11"
-dependencies = ["python-mpv>=1.0.7", "pillow>=10.1"]
+# Pillow is split by machine. The original Pi Zero W is armv6l, and nobody
+# ships armv6 wheels except piwheels -- whose newest cp311 build is 10.4.
+# Without the split uv compiles Pillow 12 from source on a 1 GHz ARM11, which
+# is most of an hour and needs libjpeg/zlib/freetype headers. Every other
+# machine (Pi 4, Zero 2 W, laptops) keeps the unpinned line and PyPI.
+dependencies = [
+    "python-mpv>=1.0.7",
+    "pillow>=10.1; platform_machine != 'armv6l'",
+    "pillow>=10.1,<10.5; platform_machine == 'armv6l'",
+]
 
 [project.optional-dependencies]
 # only on the device: talks to the real SSD1309 over I2C, the GPIO controls
@@ -14,6 +23,9 @@ device = [
     "dbus-fast>=2.21",
     "gpiozero>=2.0.1.post3",
     "lgpio>=0.2.2",
+    # luma.core's dependency, named here only so the piwheels source below
+    # can apply to it: uv sources only reach direct dependencies.
+    "cbor2>=5.6; platform_machine == 'armv6l'",
 ]
 # dev: --oled flag opens a window with the exact 128x64 rendering
 emu = ["luma.emulator>=1.5"]
@@ -31,6 +43,23 @@ addopts = "-q --strict-markers"
 markers = [
     "device: needs real hardware (GPIO/OLED/BlueZ/audio); deselected off-device",
 ]
+
+# piwheels, for armv6l only. `explicit` keeps every other package on PyPI,
+# so the Pi 4 / Zero 2 W lock is byte-for-byte what it was. Three packages
+# need it: Pillow (no armv6 wheel anywhere else), cbor2 (6.x is a Rust
+# extension, and there is no Rust toolchain on the board), and lgpio (a
+# swig build that piwheels has already done). dbus-fast is not here because
+# piwheels has no armv6 build of it either; it compiles from source, slowly,
+# and falls back to pure Python if that fails.
+[[tool.uv.index]]
+name = "piwheels"
+url = "https://www.piwheels.org/simple"
+explicit = true
+
+[tool.uv.sources]
+pillow = { index = "piwheels", marker = "platform_machine == 'armv6l'" }
+cbor2 = { index = "piwheels", marker = "platform_machine == 'armv6l'" }
+lgpio = { index = "piwheels", marker = "platform_machine == 'armv6l'" }
 
 [build-system]
 requires = ["hatchling"]

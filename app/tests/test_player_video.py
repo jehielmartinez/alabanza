@@ -17,10 +17,17 @@ from alabanza import player                                       # noqa: E402
 
 @pytest.fixture
 def headless(monkeypatch):
-    """A Pi with no display server — the device, over SSH."""
+    """A Pi with no display server — the device, over SSH.
+
+    The machine is pinned to the production board, so these pass the same
+    on a laptop, the Pi 4 and the Zero W; the armv6l tests below override
+    it, because run on a real Zero W the probe would otherwise answer for
+    the box it is on rather than the one under test."""
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("ALABANZA_VIDEO", raising=False)
+    monkeypatch.setattr(player, "_machine", lambda: "aarch64")
 
 
 class TestNoDisplayMeansNoVideo:
@@ -43,6 +50,51 @@ class TestNoDisplayMeansNoVideo:
         assert options["hwdec"] == "v4l2m2m-copy", \
             "software decode is 3x the load on a Zero 2 W"
         assert "vid" not in options
+
+
+class TestTheOriginalZeroW:
+    """armv6l has one ARM11 core with no NEON. Software YUV-to-RGB at 720p is
+    beyond it, so the frame goes to the GPU as textures instead."""
+
+    def test_armv6_renders_through_the_gpu_on_drm(self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: "/dev/dri/card0")
+        monkeypatch.setattr(player, "_machine", lambda: "armv6l")
+        options = player._video_options()
+        assert options["vo"] == "gpu"
+        assert options["gpu_context"] == "drm"
+        assert options["drm_device"] == "/dev/dri/card0"
+        assert options["hwdec"] == "v4l2m2m-copy"
+
+    def test_armv6_without_a_display_is_still_audio_only(
+            self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: None)
+        monkeypatch.setattr(player, "_machine", lambda: "armv6l")
+        assert player._video_options() == {"vid": "no"}
+
+    def test_the_other_boards_keep_the_drm_path(self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: "/dev/dri/card1")
+        monkeypatch.setattr(player, "_machine", lambda: "aarch64")
+        assert player._video_options()["vo"] == "drm"
+
+
+class TestTheBenchOverride:
+    def test_alabanza_video_replaces_the_chain(self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: "/dev/dri/card1")
+        monkeypatch.setenv("ALABANZA_VIDEO", "vo=gpu, gpu-context=drm,hwdec=drm-prime")
+        assert player._video_options() == {
+            "vo": "gpu", "gpu_context": "drm", "hwdec": "drm-prime",
+            "drm_device": "/dev/dri/card1"}
+
+    def test_it_cannot_turn_video_on_without_a_display(
+            self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: None)
+        monkeypatch.setenv("ALABANZA_VIDEO", "vo=gpu")
+        assert player._video_options() == {"vid": "no"}
+
+    def test_a_bare_flag_means_yes(self, headless, monkeypatch):
+        monkeypatch.setattr(player, "_drm_device", lambda: "/dev/dri/card1")
+        monkeypatch.setenv("ALABANZA_VIDEO", "vo=drm,hwdec")
+        assert player._video_options()["hwdec"] == "yes"
 
 
 class TestTheDevMachineIsUntouched:

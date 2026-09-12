@@ -40,6 +40,12 @@ class ScriptedMatrix:
         self._failing = False
         self.released = 0
 
+    def modes(self) -> str:
+        """The log line on the FAULT_AFTER-th failure asks the matrix for
+        lgpio's view of the rows. A scripted keypad has no rows to report,
+        and it must not blow up in the except handler the test is about."""
+        return "scripted"
+
     def scan(self):
         self._drain()
         if not self._script:

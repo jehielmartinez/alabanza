@@ -7,6 +7,7 @@ default, using scaletempo2).
 
 import ctypes.util
 import os
+import platform
 import random
 import sys
 import time
@@ -101,6 +102,10 @@ def _video_options() -> dict:
 
     Returns nothing on a dev machine either: macOS has no DRM, and a Linux
     desktop with a display server keeps mpv's own windowed defaults.
+
+    The original Zero W (armv6l) gets a different output chain, and the
+    ALABANZA_VIDEO environment variable can replace the whole set for bench
+    measurements -- see the code below.
     """
     if sys.platform != "linux":
         return {}
@@ -109,7 +114,46 @@ def _video_options() -> dict:
     device = _drm_device()
     if device is None:
         return {"vid": "no"}
+    override = _video_override()
+    if override is not None:
+        override.setdefault("drm_device", device)
+        return override
+    if _machine() == "armv6l":
+        # The original Pi Zero W: one ARM11 core, no NEON, about an eighth of
+        # a Zero 2 W. `vo=drm` converts every decoded frame from YUV to RGB in
+        # software, which that core cannot do at 720p25. `vo=gpu` on the DRM
+        # context uploads the YUV planes as textures and lets the VideoCore
+        # do the conversion; the copy out of the decoder is a plain memcpy
+        # the ARM11 can afford. Untested at the time of writing -- the
+        # ALABANZA_VIDEO override above exists so this can be measured on
+        # the board without editing code.
+        return {"vo": "gpu", "gpu_context": "drm", "drm_device": device,
+                "hwdec": "v4l2m2m-copy"}
     return {"vo": "drm", "drm_device": device, "hwdec": "v4l2m2m-copy"}
+
+
+def _machine() -> str:
+    return platform.machine()
+
+
+def _video_override() -> dict | None:
+    """Bench override: ALABANZA_VIDEO="vo=gpu,gpu-context=drm,hwdec=drm-prime".
+
+    Comma-separated mpv options, exactly as they would be written on the mpv
+    command line minus the leading dashes. Only read when a display is
+    connected, so it can never turn video on where the probe turned it off.
+    Meant for measuring decode paths on a board, never for production.
+    """
+    raw = os.environ.get("ALABANZA_VIDEO", "").strip()
+    if not raw:
+        return None
+    options = {}
+    for item in raw.split(","):
+        if not item.strip():
+            continue
+        key, _, value = item.partition("=")
+        options[key.strip().replace("-", "_")] = value.strip() or "yes"
+    return options
 
 
 class Player:

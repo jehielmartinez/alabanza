@@ -2,6 +2,7 @@
 # tools/ scripts (download_hymns.py, provision_library.py)
 tools/downloads/
 tools/library/
+tools/library-480/
 *.mp4
 
 # python

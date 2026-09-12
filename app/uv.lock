@@ -1,21 +1,28 @@
 version = 1
 revision = 3
 requires-python = ">=3.11"
+resolution-markers = [
+    "platform_machine == 'armv6l'",
+    "platform_machine != 'armv6l'",
+]
 
 [[package]]
 name = "alabanza"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "pillow" },
+    { name = "pillow", version = "10.4.0", source = { registry = "https://www.piwheels.org/simple" }, marker = "platform_machine == 'armv6l'" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'armv6l'" },
     { name = "python-mpv" },
 ]
 
 [package.optional-dependencies]
 device = [
+    { name = "cbor2", version = "6.1.4", source = { registry = "https://www.piwheels.org/simple" }, marker = "platform_machine == 'armv6l'" },
     { name = "dbus-fast" },
     { name = "gpiozero" },
-    { name = "lgpio" },
+    { name = "lgpio", version = "0.2.2.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'armv6l'" },
+    { name = "lgpio", version = "0.2.2.0", source = { registry = "https://www.piwheels.org/simple" }, marker = "platform_machine == 'armv6l'" },
     { name = "luma-oled" },
 ]
 emu = [
@@ -27,12 +34,15 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cbor2", marker = "platform_machine == 'armv6l' and extra == 'device'", specifier = ">=5.6", index = "https://www.piwheels.org/simple" },
     { name = "dbus-fast", marker = "extra == 'device'", specifier = ">=2.21" },
     { name = "gpiozero", marker = "extra == 'device'", specifier = ">=2.0.1.post3" },
-    { name = "lgpio", marker = "extra == 'device'", specifier = ">=0.2.2" },
+    { name = "lgpio", marker = "platform_machine == 'armv6l' and extra == 'device'", specifier = ">=0.2.2", index = "https://www.piwheels.org/simple" },
+    { name = "lgpio", marker = "platform_machine != 'armv6l' and extra == 'device'", specifier = ">=0.2.2" },
     { name = "luma-emulator", marker = "extra == 'emu'", specifier = ">=1.5" },
     { name = "luma-oled", marker = "extra == 'device'", specifier = ">=3.13" },
-    { name = "pillow", specifier = ">=10.1" },
+    { name = "pillow", marker = "platform_machine != 'armv6l'", specifier = ">=10.1" },
+    { name = "pillow", marker = "platform_machine == 'armv6l'", specifier = ">=10.1,<10.5", index = "https://www.piwheels.org/simple" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "python-mpv", specifier = ">=1.0.7" },
 ]
@@ -42,6 +52,9 @@ provides-extras = ["device", "emu", "test"]
 name = "cbor2"
 version = "6.1.4"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "platform_machine != 'armv6l'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/c6/14/b02446bacfe44351b1689c04937ade007588f44570431880a6937e525e6c/cbor2-6.1.4.tar.gz", hash = "sha256:01ecc79a28f33d17331943ce508fc1e21f4b06553c73f874f4c77120d72b2ef9", size = 90840, upload-time = "2026-08-01T20:41:39.797Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/84/1e363301c06f509963d134f5479e82b3ade87fb1495ddacf9bf7ff24ac42/cbor2-6.1.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:8156fdeb73c3ff6c8cf67ad414fb5c887cd708ff0af6d61f62629f41cb4c17b2", size = 414947, upload-time = "2026-08-01T20:40:37.405Z" },
@@ -84,6 +97,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/7c/73057e7a38488a816a0d40ff9e7cd9f418800894582e2e48fb2f47ce66a2/cbor2-6.1.4-cp314-cp314t-win32.whl", hash = "sha256:7deccc50fd0b55c4c7dd265b144c5358a645121e457c0ae3722b5ad59832b257", size = 281462, upload-time = "2026-08-01T20:41:35.127Z" },
     { url = "https://files.pythonhosted.org/packages/99/5d/d5db22837cb566de733b9d1c418cdf1912ccb1efc7b179e295430b1d81a2/cbor2-6.1.4-cp314-cp314t-win_amd64.whl", hash = "sha256:f3fc7d15cba4174373df2496070faa4a927fe3ed772130d281808120aec7b61c", size = 309165, upload-time = "2026-08-01T20:41:36.716Z" },
     { url = "https://files.pythonhosted.org/packages/29/5f/ff2c6da83553a692219a0a62a21b57a27ded4405200e50db758a17fbaf15/cbor2-6.1.4-cp314-cp314t-win_arm64.whl", hash = "sha256:164ca22b509408435b2d8236c80c964e4fc77c085ab034569cd04c40d5cc8883", size = 298386, upload-time = "2026-08-01T20:41:38.392Z" },
+]
+
+[[package]]
+name = "cbor2"
+version = "6.1.4"
+source = { registry = "https://www.piwheels.org/simple" }
+resolution-markers = [
+    "platform_machine == 'armv6l'",
+]
+wheels = [
+    { url = "https://www.piwheels.org/simple/cbor2/cbor2-6.1.4-cp311-cp311-linux_armv6l.whl", hash = "sha256:86d6c11789e274e8709f82f1c234486dff0470d9858f172969690102bee698bc" },
+    { url = "https://www.piwheels.org/simple/cbor2/cbor2-6.1.4-cp313-cp313-linux_armv6l.whl", hash = "sha256:81cc2bfeee02e4ade49c6bebf0ac56e3b2bdff6b9f9983ce290e1fe8994c15a5" },
 ]
 
 [[package]]
@@ -176,6 +201,9 @@ wheels = [
 name = "lgpio"
 version = "0.2.2.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "platform_machine != 'armv6l'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/56/33/26ec2e8049eaa2f077bf23a12dc61ca559fbfa7bea0516bf263d657ae275/lgpio-0.2.2.0.tar.gz", hash = "sha256:11372e653b200f76a0b3ef8a23a0735c85ec678a9f8550b9893151ed0f863fff", size = 90087, upload-time = "2024-03-29T21:59:55.901Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/4e/5721ae44b29e4fe9175f68c881694e3713066590739a7c87f8cee2835c25/lgpio-0.2.2.0-cp311-cp311-linux_armv7l.whl", hash = "sha256:5b3c403e1fba9c17d178f1bde102726c548fc5c4fc1ccf5ec3e18f3c08e07e04", size = 382992, upload-time = "2024-03-29T22:00:45.039Z" },
@@ -187,12 +215,26 @@ wheels = [
 ]
 
 [[package]]
+name = "lgpio"
+version = "0.2.2.0"
+source = { registry = "https://www.piwheels.org/simple" }
+resolution-markers = [
+    "platform_machine == 'armv6l'",
+]
+wheels = [
+    { url = "https://www.piwheels.org/simple/lgpio/lgpio-0.2.2.0-cp311-cp311-linux_armv6l.whl", hash = "sha256:2860e533e6e498b10d953d4b1fec4650e9af61991be11650c41a44d6fdafa08b" },
+    { url = "https://www.piwheels.org/simple/lgpio/lgpio-0.2.2.0-cp313-cp313-linux_armv6l.whl", hash = "sha256:88c48db5e18271ef6b1435c5ee5c7712d9a2c16bfd4119cd8d4222c1a0c761bd" },
+]
+
+[[package]]
 name = "luma-core"
 version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cbor2" },
-    { name = "pillow" },
+    { name = "cbor2", version = "6.1.4", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'armv6l'" },
+    { name = "cbor2", version = "6.1.4", source = { registry = "https://www.piwheels.org/simple" }, marker = "platform_machine == 'armv6l'" },
+    { name = "pillow", version = "10.4.0", source = { registry = "https://www.piwheels.org/simple" }, marker = "platform_machine == 'armv6l'" },
+    { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'armv6l'" },
     { name = "smbus2" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/06/ad/995c228696fa9ce36837df8705178d2b7c5de653117a2c6c36a8fb49db85/luma_core-2.6.0.tar.gz", hash = "sha256:3ddb673f9699a148d3ccfee2985451b01ddd4b4ea66b65a9664ce36806cf411c", size = 106871, upload-time = "2026-08-04T18:18:40.819Z" }
@@ -236,8 +278,23 @@ wheels = [
 
 [[package]]
 name = "pillow"
+version = "10.4.0"
+source = { registry = "https://www.piwheels.org/simple" }
+resolution-markers = [
+    "platform_machine == 'armv6l'",
+]
+wheels = [
+    { url = "https://www.piwheels.org/simple/pillow/pillow-10.4.0-cp311-cp311-linux_armv6l.whl", hash = "sha256:2a11e088005a5d3e9c222dc3a95d201155f2a4874a9f99f3b70c1ed618282934" },
+    { url = "https://www.piwheels.org/simple/pillow/pillow-10.4.0-cp313-cp313-linux_armv6l.whl", hash = "sha256:1a502bc787ca8d36d21d899a942cadb604592f5c231976b3ee8c71a59a12fb2f" },
+]
+
+[[package]]
+name = "pillow"
 version = "12.3.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "platform_machine != 'armv6l'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/3d/bb7fca845737cf9d7dbde16ed1843984665ff2e0a518f5db43e77ec540b9/pillow-12.3.0.tar.gz", hash = "sha256:3b8182a766685eaa002637e28b4ec8d6b18819a0c71f579bf0dbaa5830297cce", size = 47025035, upload-time = "2026-07-01T11:56:38.965Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/c8/0a78b0e02d7ac54bc03e5321c9220da52f0c2ea83b21f7c40e7f3169c502/pillow-12.3.0-cp311-cp311-macosx_10_10_x86_64.whl", hash = "sha256:00808c5e14ef63ac5161091d242999076604ff74b883423a11e5d7bbb38bf756", size = 5392415, upload-time = "2026-07-01T11:53:47.162Z" },

@@ -66,6 +66,20 @@ case "$MODEL" in
         warn "do not match the Zero 2 W — do not tune mpv or GPIO here." ;;
 esac
 
+# The original Zero W (BCM2835, one ARM11 core, armv6l) is a demo stand-in
+# for the Zero 2 W, not a production target. It needs the 32-bit image, gets
+# Pillow from piwheels instead of a source build, and renders video through
+# a different mpv chain (app/alabanza/player.py). Same header, same pins.
+ARCH="$(uname -m)"
+if [ "$ARCH" = "armv6l" ]; then
+    warn "armv6l: the original Zero W. Expect a slow first provision and"
+    warn "measure video before trusting it — see provision/README.md."
+fi
+case "$ARCH" in
+    armv6l|armv7l|aarch64) ;;
+    *) die "unexpected architecture $ARCH — is this the right OS image?" ;;
+esac
+
 [ -f "$APP/pyproject.toml" ] || die "no app/ found next to this script — is the repo complete?"
 
 # sudo up front, so the password prompt happens now rather than halfway through
@@ -188,6 +202,17 @@ step "Installing system packages"
 PACKAGES=(libmpv2 i2c-tools swig python3-dev build-essential liblgpio-dev
           pipewire pipewire-audio pipewire-pulse wireplumber pulseaudio-utils
           libspa-0.2-bluetooth rfkill rsync git)
+
+# libopenjp2-7, libjpeg62-turbo, libtiff6, libxcb1, libwebp7
+#              What the piwheels Pillow wheel links against at import time.
+#              piwheels wheels are built on Pi OS and expect the distro's
+#              shared libraries rather than bundling their own, and Lite
+#              ships none of the image ones. Without these the venv installs
+#              cleanly and the app dies on `import PIL.Image`, which is the
+#              first thing the OLED code does.
+if [ "$ARCH" = "armv6l" ]; then
+    PACKAGES+=(libopenjp2-7 libjpeg62-turbo libtiff6 libxcb1 libwebp7)
+fi
 
 MISSING=()
 for pkg in "${PACKAGES[@]}"; do
@@ -324,6 +349,16 @@ command -v uv >/dev/null && UV="$(command -v uv)"
 [ -x "$UV" ] || die "uv install failed"
 ok "$("$UV" --version)"
 
+# uv prefers its own managed CPython builds over the system one, and there
+# is no managed build for armv6l -- so on the Zero W it must be told to use
+# Pi OS's python3 or it stops at "no download available". The venv it makes
+# then links against the distro Python, which is also what the piwheels
+# Pillow wheel was built for.
+if [ "$ARCH" = "armv6l" ]; then
+    export UV_PYTHON_PREFERENCE=only-system
+    ok "uv pinned to the system python ($(python3 --version))"
+fi
+
 cd "$APP"
 "$UV" sync --extra test --extra device --quiet
 ok "venv ready at app/.venv"
@@ -335,6 +370,17 @@ step "Installing the service"
 # The app runs as a user service, not a system one. It needs the user's
 # PipeWire session for audio, and a system service would have none -- the same
 # session that `loginctl enable-linger` above keeps alive without a login.
+
+# The Zero W plays the 480p copy of the library when it has one
+# (tools/downscale_library.py, synced with sync.sh --library-480). The
+# default library location is unchanged for every other board.
+LIBRARY_ARG=""
+if [ "$ARCH" = "armv6l" ] && [ -f "$REPO/tools/library-480/manifest.json" ]; then
+    LIBRARY_ARG=" --library $REPO/tools/library-480"
+    ok "service will play the 480p library"
+elif [ "$ARCH" = "armv6l" ]; then
+    warn "no tools/library-480/ — the service will play 720p, which the Zero W may not keep up with"
+fi
 mkdir -p "$HOME/.config/systemd/user"
 cat > "$HOME/.config/systemd/user/alabanza.service" <<UNIT
 [Unit]
@@ -345,7 +391,7 @@ Wants=pipewire.service
 [Service]
 Type=simple
 WorkingDirectory=$APP
-ExecStart=$UV run --no-sync --extra device alabanza --gpio --oled-device --bt real
+ExecStart=$UV run --no-sync --extra device alabanza --gpio --oled-device --bt real$LIBRARY_ARG
 Restart=always
 RestartSec=3
 # The panel is the only interface; nothing should reach the console, which
@@ -401,6 +447,24 @@ if "$UV" run --no-sync python -c "import mpv" 2>/dev/null; then
 else
     warn "python-mpv cannot load libmpv — is libmpv2 installed?"
     FAILED=1
+fi
+
+# Pillow has to import, not merely install. On armv6l it is a piwheels wheel
+# that links against distro libraries, and a missing one only shows up here.
+if "$UV" run --no-sync python -c "import PIL.Image" 2>/dev/null; then
+    ok "Pillow imports"
+else
+    warn "Pillow does not import — a shared library it needs is missing"
+    FAILED=1
+fi
+
+# The H.264 block is /dev/video10 (bcm2835-codec). Absent means mpv's
+# hwdec=v4l2m2m-copy silently falls back to software, which the Zero W
+# and Zero 2 W cannot afford at 720p. Not an error on the bench Pi 4.
+if [ -e /dev/video10 ]; then
+    ok "hardware video decoder present (/dev/video10)"
+else
+    warn "no /dev/video10 — hardware H.264 decode unavailable, mpv will use the CPU"
 fi
 
 if command -v i2cdetect >/dev/null && [ -e /dev/i2c-1 ]; then

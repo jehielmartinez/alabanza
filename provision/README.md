@@ -10,9 +10,11 @@ install** to a bench device you can run hymns on.
 
 ## From a blank SD card
 
-1. **Flash** Raspberry Pi OS **Lite (64-bit)** with Raspberry Pi Imager. Do not
-   format the card in Disk Utility first — Imager writes its own partition
-   table. In Imager's settings, set the hostname, create the user, and **enable
+1. **Flash** Raspberry Pi OS **Lite (64-bit)** with Raspberry Pi Imager — or
+   **Lite (32-bit)** for the original Zero W, which is ARMv6 and cannot boot
+   the 64-bit image (see [The original Zero W](#the-original-zero-w) below).
+   Do not format the card in Disk Utility first — Imager writes its own
+   partition table. In Imager's settings, set the hostname, create the user, and **enable
    SSH with your public key**; that is the whole reason no keyboard or monitor
    is needed below.
 
@@ -125,3 +127,76 @@ service, no quiet boot. This produces a *bench* device: one you SSH into, run
 the suite on, and drive by hand. See [BUILD-PLAN.md](../docs/BUILD-PLAN.md)
 Phase 4 for what turns it into an appliance, and Phase 5 for why the golden
 image, not this script, is what replicates across ten units.
+
+## The original Zero W
+
+The Zero **W** (v1.1, BCM2835) is not the Zero **2 W**: one ARM11 core at
+1 GHz, no NEON, 32-bit only. It is a stand-in for demos while the Zero 2 W is
+on order, not a production target. The same scripts provision it; three
+things are different, all handled automatically:
+
+- **32-bit image.** Flash Raspberry Pi OS Lite (32-bit). `provision.sh` reads
+  `uname -m` and refuses anything that is not `armv6l`, `armv7l` or `aarch64`.
+- **Pillow comes from piwheels.** Nobody publishes armv6 wheels except
+  piwheels, and its newest cp311 build is 10.4 — so `app/pyproject.toml`
+  pins Pillow `<10.5` on `armv6l` only and pulls it from there. Every other
+  machine keeps PyPI and the unpinned line. The wheel links against distro
+  libraries, which the script installs.
+- **Video renders through the GPU.** `vo=drm` converts YUV to RGB on the CPU
+  every frame; an ARM11 cannot do that at 720p. On `armv6l` the player uses
+  `vo=gpu` on the DRM context so the VideoCore does the conversion. **This is
+  untested at the time of writing.** Measure it:
+
+  ```sh
+  systemctl --user stop alabanza
+  cd ~/alabanza/app
+  ALABANZA_VIDEO="vo=gpu,gpu-context=drm,hwdec=v4l2m2m-copy" \
+      uv run alabanza --gpio --oled-device --bt real
+  ```
+
+  `ALABANZA_VIDEO` replaces the whole mpv video option set (comma-separated,
+  mpv's own names without the dashes) so decode paths can be compared without
+  editing code. It is ignored when no display is connected.
+- **It plays a 480p copy of the library.** A third of the pixels of 720p, and
+  lyrics videos are text on a still background, so nothing a projector shows
+  is lost. Build it once on the dev machine and push it instead of the 720p
+  set:
+
+  ```sh
+  cd tools && uv run downscale_library.py       # library/ -> library-480/, ~5 min
+  provision/sync.sh user@host --library-480     # ~1.2 GB instead of 2.3
+  ```
+
+  Same filenames, same `manifest.json`, so it is a drop-in for
+  `alabanza --library`. `provision.sh` points the service at it automatically
+  on `armv6l` when the folder is present, and warns when it is not. The
+  audio is copied, not re-encoded, so durations and quality are unchanged.
+
+Expect the first provision to take much longer than on the Pi 4: `dbus-fast`
+compiles from source on one slow core — 28 minutes on the bench Zero W —
+and falls back to pure Python if its C build fails, so a failure there is
+slow, not fatal. `cbor2` and `lgpio` also come from piwheels for the same
+reason: cbor2 6.x is a Rust extension and there is no Rust on the board.
+Boot-to-ready is nearer a minute than the 10–15 s in the spec.
+
+The current 32-bit Lite image is **Trixie with Python 3.13**, not Bookworm
+with 3.11; the lock carries wheels for both. `provision.sh` also pins uv to
+the system Python on `armv6l` (`UV_PYTHON_PREFERENCE=only-system`) because
+uv has no managed CPython for that architecture and would otherwise stop at
+"no download available". Run bench commands the same way:
+
+```sh
+export UV_PYTHON_PREFERENCE=only-system
+```
+
+Measured on a Zero W Rev 1.1 (Trixie, mpv 0.40, `vo=null` — decode and copy
+only, no rendering), one hymn, 15 s of playback:
+
+| File | `hwdec` | CPU | Dropped frames |
+|---|---|---|---|
+| 480p | `v4l2m2m-copy` | 21% | 0 |
+| 720p | `v4l2m2m-copy` | 21% | 0 |
+| 480p | software | 100% | 228 |
+
+So the hardware decoder is mandatory and is not the bottleneck at either
+size; what remains to measure is the render to HDMI through `vo=gpu`.
