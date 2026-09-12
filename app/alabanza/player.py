@@ -85,8 +85,19 @@ def _video_options() -> dict:
     `vo=drm` and nothing plugged in, mpv fails to open the output and then
     loads no file at all — not even the audio track. The device would sit
     silent whenever it was used without a projector, which SPEC's "when no
-    HDMI is connected, playback is audio-only" explicitly allows for. So an
-    absent display means no video options, and mpv plays the audio.
+    HDMI is connected, playback is audio-only" explicitly allows for.
+
+    An absent display therefore turns video *off* (`vid=no`) rather than
+    simply leaving the options empty. Empty looks equivalent and is not: it
+    hands mpv its own default output chain, which on a headless Pi hunts for
+    an X11, Wayland or DRM target that does not exist. mpv keeps serving
+    properties for a while and then stops answering one — and because the
+    app reads `volume` from the loop thread every tick, the whole appliance
+    wedges there with the keypad, the keyboard and the panel all frozen
+    together. It looks exactly like dead controls, and it is not.
+
+    This is the common case, not the edge case: the device is used without a
+    projector most of the time.
 
     Returns nothing on a dev machine either: macOS has no DRM, and a Linux
     desktop with a display server keeps mpv's own windowed defaults.
@@ -97,22 +108,21 @@ def _video_options() -> dict:
         return {}
     device = _drm_device()
     if device is None:
-        return {}
+        return {"vid": "no"}
     return {"vo": "drm", "drm_device": device, "hwdec": "v4l2m2m-copy"}
 
 
 class Player:
     def __init__(self, video: bool = True, idle_images: list[Path] | None = None):
-        self._video = video
         self._idle_images = _idle_images() if idle_images is None else idle_images
         self._idle_shown: Path | None = None
         self._idle_queue: list[Path] = []
         self._showing_idle = False
         self._starting_until = 0.0
-        self._mpv = mpv.MPV(
-            vid="auto" if video else "no",
-            osc=False,
-            force_window=False,
+        options = {
+            "vid": "auto" if video else "no",
+            "osc": False,
+            "force_window": False,
             # Hold the last frame at the end instead of unloading. Unloading
             # releases DRM, so the Linux console appeared on the projector for
             # the tick between a hymn ending and the idle image loading. With
@@ -120,12 +130,20 @@ class Player:
             # and the end is detected by eof-reached instead of by the file
             # disappearing. SPEC decision 8: the projector shows the video,
             # the image, or a freeze-frame, and never anything else.
-            keep_open=True,
-            log_handler=None,
-            **(_video_options() if video else {}),
-        )
+            "keep_open": True,
+            "log_handler": None,
+        }
+        # One dict rather than keywords plus a splat, because the probe has to
+        # be able to override `vid` — with no display attached it turns video
+        # off — and mpv.MPV(vid=..., **{"vid": ...}) is a TypeError.
+        options.update(_video_options() if video else {})
+        self._mpv = mpv.MPV(**options)
+        # Whether video is *actually* on, which is not the same as what the
+        # caller asked for: --no-video and an unplugged HDMI arrive at the
+        # same place, and everything downstream has to treat them alike.
+        self._video = options["vid"] != "no"
         self._mpv.volume = 80
-        if video:
+        if self._video:
             # Without this an image would be shown for one second and then
             # unloaded, leaving a black screen.
             self._mpv["image-display-duration"] = "inf"

@@ -149,3 +149,43 @@ class TestPlaybackStartsWhenAsked:
             assert not player.active
         finally:
             player.shutdown()
+
+
+class TestTheLoopSurvivesWithoutADisplay:
+    """The appliance is used without a projector most of the time, and that
+    path is the one that wedged: mpv with no usable video output stopped
+    answering `volume`, which the app reads from the loop thread every tick,
+    so the keypad, the keyboard and the panel froze together. It looked like
+    dead controls for a whole evening. Only real libmpv shows this."""
+
+    def test_video_is_off_when_nothing_is_plugged_in(self):
+        from alabanza.player import Player, _drm_device
+        if _drm_device() is not None:
+            pytest.skip("a display is connected; unplug HDMI to test this")
+        player = Player(video=True)
+        try:
+            assert not player._video, \
+                "no display, but mpv was still asked for video"
+        finally:
+            player.shutdown()
+
+    def test_property_reads_stay_quick_enough_for_the_loop(self):
+        """The loop ticks at 50 ms. A property read that blocks for seconds
+        is a frozen appliance, so this fails long before a user would call
+        it slow — and hangs outright on the bug it guards."""
+        import time
+
+        from alabanza.player import Player
+
+        player = Player(video=True)
+        try:
+            player.show_idle()
+            worst = 0.0
+            for _ in range(60):
+                start = time.monotonic()
+                _ = (player.volume, player.active)
+                worst = max(worst, time.monotonic() - start)
+                time.sleep(0.02)
+            assert worst < 1.0, f"a property read took {worst:.2f}s"
+        finally:
+            player.shutdown()
