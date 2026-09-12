@@ -17,7 +17,7 @@ Companion to [SPEC.md](SPEC.md). The spec says *what* the device is; this says *
 | 7 | LiPo battery | Capacity sets prototype runtime | TBD | The 8 h target is a product-stage goal; the prototype only has to run long enough to test |
 | 8 | microSD card | 32 GB, A1 class, name brand | ~$8 | OS + app + 2.1 GB library |
 | 9 | Wall adapter | Per the PB0063A's input spec | ~$8 | |
-| 10 | Enclosure + misc | box, screws, standoffs, panel hardware | ~$20 | No perfboard or hookup wire — the control PCB replaced both |
+| 10 | Enclosure + misc | box, screws, standoffs, panel hardware, **one momentary switch** | ~$20 | No perfboard or hookup wire — the control PCB replaced both. The switch is power-on, wired to the Pi's RUN pads — [HARDWARE.md](HARDWARE.md) §7b |
 
 Per-unit total ≈ **$120**. For the 10-unit batch, buy parts in bulk (AliExpress-class pricing drops most line items 20–40%) — but **only after one complete unit is validated end-to-end**.
 

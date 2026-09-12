@@ -129,6 +129,10 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
   let go and nothing happened. Both routes exist because a hold is
   undiscoverable and a menu is slow, and shutdown wants to be neither.
 
+- **Turning it back on is a separate, recessed button** wired to the Pi's RUN
+  pads. On battery there is no plug to pull, so shutdown needed an inverse and
+  did not have one. It cannot be a panel control: see decision 23.
+
 ## Software stack
 
 - **OS**: Raspberry Pi OS Lite (64-bit), no desktop. Video renders via DRM/KMS directly — this is what makes "nothing but the video" easy and boot fast (~10–15 s to ready).
@@ -215,3 +219,35 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
     **user** service — it needs the user's PipeWire session for audio, which a
     system service would not have — and is granted exactly one privilege,
     `/sbin/poweroff`, via a sudoers drop-in.
+
+23. **Power-on is a dedicated recessed button on the Pi's RUN pads, not a
+    panel control.** Shutdown had no inverse. Mains-powered that is invisible
+    — you pull the plug — but the device is battery powered, so a unit shut
+    down in a cupboard had no way back short of opening the case.
+
+    It cannot be one of the existing controls, and that is a hardware fact
+    rather than a preference. `poweroff` halts the SoC: no kernel, no app,
+    nothing polling, so a button on any of the spare GPIOs is read by nobody.
+    Only two inputs start a halted Pi, and neither is software reading a pin
+    — **GPIO3**, which the boot firmware treats as wake-from-halt, and
+    **RUN**, the SoC reset line. GPIO3 is already SCL for the OLED and the
+    reserved `0x36` gauge; a button shorting it to ground mid-frame would
+    stall the I2C bus.
+
+    So RUN, with its own switch. It cannot share the encoder push: RUN is
+    live whenever the board is powered, so every press meant to open the menu
+    would hard-reset the device mid-hymn. That also fixes the placement —
+    recessed or on the back, never beside the keypad — because a press while
+    running *is* a power yank, which decision 10 makes survivable but not
+    pleasant.
+
+    It works because `poweroff` leaves the board halted while the power module
+    keeps the 5 V rail up: RUN resets the SoC, the bootloader runs again, and
+    it boots. The corollary is that this is prototype-stage by nature. A
+    halted Zero still draws tens of milliamps, so "off" flattens a battery
+    over days — fine between services, not for storage. The product answer is
+    a soft-latch that cuts the rail entirely, at which point RUN has no power
+    to release and the latch button takes over both directions. Deferred with
+    the integrated power block (decision 21), so the asymmetry — hold the
+    encoder to stop, press the recessed button to start — is v1's, and one
+    line on the laminated card covers it.

@@ -301,6 +301,35 @@ The read-only root filesystem already makes an abrupt power loss a non-event
 ([SPEC.md](SPEC.md) decision 10), so the prototype simply runs until it stops.
 This is a scope decision, not an oversight — see [SPEC.md](SPEC.md) decision 20.
 
+#### 7b. The power-on button — RUN, and its own switch
+
+A momentary SPST between the Zero's **RUN** pad and any GND. No resistor and
+no capacitor: the line is already pulled up on the Pi, so the switch only has
+to pull it down. Two wires to the RUN through-holes, off-board like the power
+module — it claims no GPIO and does not touch J1, which keeps
+[the header rule](#5-pi-header--j1) intact.
+
+Why it exists at all: `poweroff` is reachable from the panel and nothing was.
+On battery there is no plug to pull. The full reasoning, including why no
+spare GPIO can do this, is [SPEC.md](SPEC.md) decision 23.
+
+Three things the layout has to respect:
+
+- **It is a reset, not a power switch.** Pressing it while the device runs is
+  electrically a power yank. Survivable — the read-only root exists for that
+  — but it means the button goes **recessed, or on the back panel**, never in
+  reach of someone aiming for the keypad.
+- **It cannot share the encoder push.** RUN is live whenever the board is
+  powered, so a shared switch would hard-reset the device on every press
+  meant to open the menu.
+- **Keep the wires short.** RUN is a reset input, and a long unshielded pair
+  picks up enough noise to reset the board on its own. If that happens, 100 nF
+  from RUN to GND settles it.
+
+At v2 this part disappears: the soft-latch below cuts the 5 V rail outright,
+so there is no rail for a reset to release, and the latch button becomes both
+power-on and power-off. See [Future: v2 integration](#future-v2-integration).
+
 #### If the gauge is wanted later without a board respin
 
 A MAX17048 breakout wires onto the cell and the existing I2C bus with four
@@ -369,6 +398,21 @@ this 1S2P arrangement.
 The modules chosen above are a deliberate v1 decision, not a permanent one. The
 intent is to fold the power block onto the control PCB in a later revision,
 removing two boards and their wiring.
+
+It should also bring a **soft-latch power circuit**, which is what turns the
+two power buttons back into one. A press closes a load switch, the Pi boots
+and asserts a keep-alive on a spare GPIO to hold the latch on, and at the end
+of the halt sequence the `gpio-poweroff` overlay releases that pin so the
+latch drops and draw goes to zero. The same switch then starts it again,
+because when off it is the circuit reading the button rather than the Pi.
+`SPARE` in [pins.py](../app/alabanza/pins.py) has seven lines free for the
+keep-alive.
+
+Two details worth carrying forward: the button can feed both the latch and
+BCM 22, so hold-to-shutdown keeps working while the device is on; and the app
+must ignore the encoder push until it has been released once after boot, or
+holding the power button a beat too long will start the device and then shut
+it straight back down.
 
 **Do it in this order, and only after v1 works.** v1's job is to establish the
 *behaviour* — real current draw under video + Bluetooth, thermal performance in a
@@ -450,6 +494,7 @@ items 5 (keypad), 6 (encoder breakout), 7 (D-pad), and 8 (UPS board).
 | 4 | M2 standoff + screw | OLED mechanical mount |
 | 1 | 2-pin JST-XH | 5 V power in from the UPS module |
 | 1 | PB0063A LiPo charger/boost module | Power; specs to be recorded on arrival |
+| 1 | Momentary SPST switch | Power-on, wired to the Pi's RUN pads; recessed or rear-panel (§7b) |
 | 1 | LiPo battery | Capacity sets prototype runtime |
 
 A KY-040 breakout would work in place of the bare EC11 (it carries the 10 kΩ
