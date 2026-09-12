@@ -4,17 +4,35 @@
 #
 # Run it ON the Pi, from anywhere inside a checkout of this repo:
 #
-#     provision/provision.sh
+#     provision/provision.sh                # appliance: starts at boot
+#     provision/provision.sh --no-headless  # bench: start it by hand
 #
 # It is **idempotent**. Re-running it is the supported way to repair a unit or
 # to pick up a change, and it is how all ten units get the same configuration
 # rather than ten slightly different ones (BUILD-PLAN.md Phase 5).
 #
-# It does NOT do Phase 4 hardening — read-only root, the systemd service and
-# quiet boot are deliberately absent. This script's job is a *bench* device:
-# one you can SSH into, run the test suite on, and drive by hand.
+# By default the unit is enabled, so the box comes up playing hymns with no
+# login — which is the product. That also means it owns the GPIO and the
+# panel from boot, so `pytest -m device` and `alabanza-hwtest` will report
+# 'GPIO busy' until the service is stopped. Use --no-headless while bringing
+# a board up, or stop it: `systemctl --user stop alabanza`.
+#
+# It still does NOT do the rest of Phase 4 hardening — read-only root and
+# quiet boot are deliberately absent.
 
 set -euo pipefail
+
+ENABLE_AUTOSTART=1
+for arg in "$@"; do
+    case "$arg" in
+        --no-headless)
+            ENABLE_AUTOSTART=0 ;;
+        -h|--help)
+            sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^#//; s/^ //'; exit 0 ;;
+        *)
+            printf 'unknown option: %s (try --help)\n' "$arg" >&2; exit 2 ;;
+    esac
+done
 
 # i2cdetect and rfkill live in /usr/sbin, which is absent from PATH in a
 # non-login shell — exactly what `ssh host '...'` gives you. Without this the
@@ -86,6 +104,55 @@ if [ "$(sudo raspi-config nonint get_spi)" = "1" ]; then
 else
     sudo raspi-config nonint do_spi 1
     ok "SPI disabled — BCM 7/8 released for the D-pad"
+fi
+
+# Persistent, bounded journald. Pi OS ships
+# /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf, which keeps
+# the journal in /run -- so it is RAM only, it is lost on every reboot, and
+# journald creates no per-user journal at all, which is why
+# `journalctl --user -u alabanza` answers "No journal files were found" on a
+# stock image. The app logs through StandardOutput=journal, so a unit that
+# died overnight leaves nothing to read in the morning: exactly the evidence
+# a ten-unit fleet in ten different churches cannot be debugged without.
+#
+# The vendor default is not wrong, it is a trade -- SD cards wear out -- so
+# this takes the logs and keeps the trade explicit: 32 MB total, 8 MB per
+# file. Bounded like that, rotation is cheap and the card is not the thing
+# paying for it. 50- beats 40- whichever directory it is read from.
+#
+# Phase 4's read-only root will need /var/log/journal bind-mounted onto the
+# writable partition, or this quietly goes back to being volatile.
+JOURNAL_CONF=/etc/systemd/journald.conf.d/50-alabanza-persistent.conf
+# `journalctl --user` exits 0 even when it finds no journal files at all, so
+# the obvious probe passes on exactly the box that is broken. Whether
+# persistent storage actually produced a file is the honest question.
+if [ -f "$JOURNAL_CONF" ] && ls /var/log/journal/*/system.journal >/dev/null 2>&1; then
+    ok "journal already persistent"
+else
+    sudo mkdir -p /etc/systemd/journald.conf.d
+    sudo tee "$JOURNAL_CONF" >/dev/null <<'JCONF'
+# Alabanza: keep the logs across reboots, and keep per-user journals so
+# `journalctl --user -u alabanza` works -- see provision/README.md.
+[Journal]
+Storage=persistent
+SystemMaxUse=32M
+SystemMaxFileSize=8M
+JCONF
+    sudo mkdir -p /var/log/journal
+    sudo systemd-tmpfiles --create --prefix /var/log/journal >/dev/null 2>&1 || true
+    sudo systemctl restart systemd-journald
+    sudo journalctl --flush >/dev/null 2>&1 || true
+    # One entry as this user, which both records when the unit was
+    # provisioned and forces the per-user journal into existence -- until
+    # something logs as uid 1000 there is no user-1000.journal for
+    # `journalctl --user` to open, and its absence looks like the
+    # configuration did not take.
+    systemd-cat -t alabanza-provision echo "provisioned $(date -Is)" || true
+    if ls /var/log/journal/*/user-*.journal >/dev/null 2>&1; then
+        ok "journal is persistent and per-user, capped at 32M"
+    else
+        warn "journal set to persistent but no per-user journal appeared yet"
+    fi
 fi
 
 # --- 2. system packages ---------------------------------------------------
@@ -290,7 +357,7 @@ StandardError=journal
 WantedBy=default.target
 UNIT
 systemctl --user daemon-reload
-ok "alabanza.service written (not enabled — see below)"
+ok "alabanza.service written"
 
 # Powering off from the menu, or by holding the encoder. The app is not root,
 # so it needs exactly one command and nothing else. Narrow on purpose: this
@@ -344,6 +411,39 @@ if command -v i2cdetect >/dev/null && [ -e /dev/i2c-1 ]; then
     fi
 fi
 
+# --- 6. autostart ---------------------------------------------------------
+#
+# Last on purpose. The verify step above opens the GPIO chip, and an already
+# running service holds those lines -- enabling any earlier makes provisioning
+# report 'GPIO busy' on a perfectly good board, which is a full evening of
+# chasing a fault that does not exist.
+
+step "Autostart"
+
+if [ "$ENABLE_AUTOSTART" = "1" ]; then
+    systemctl --user enable --now alabanza >/dev/null 2>&1
+    sleep 3
+    if systemctl --user is-active --quiet alabanza; then
+        # Type=simple reports "active" the instant the process is spawned, so
+        # a crash loop looks healthy through `is-active` alone -- it keeps
+        # landing in the RestartSec gap. NRestarts is the honest number.
+        RESTARTS="$(systemctl --user show alabanza -p NRestarts --value)"
+        if [ "${RESTARTS:-0}" = "0" ]; then
+            ok "alabanza.service enabled and running (starts at boot)"
+        else
+            warn "alabanza.service is restarting ($RESTARTS so far) — it is"
+            warn "crash-looping. journalctl --user -u alabanza -n 50"
+            FAILED=1
+        fi
+    else
+        warn "alabanza.service did not start; journalctl --user -u alabanza"
+        FAILED=1
+    fi
+else
+    systemctl --user disable --now alabanza >/dev/null 2>&1 || true
+    ok "alabanza.service installed but NOT enabled (--no-headless)"
+fi
+
 # --- done -----------------------------------------------------------------
 
 step "Done"
@@ -355,17 +455,35 @@ if [ "$FAILED" != "0" ]; then
     warn "something above needs attention; a reboot fixes most of it."
 fi
 
-cat <<'NEXT'
+if [ "$ENABLE_AUTOSTART" = "1" ]; then
+    cat <<'NEXT'
 
-    Autostart is installed but NOT enabled, because it takes the GPIO and
-    the panel — which makes bench testing by hand impossible. Turn it on
-    when the unit is ready to be an appliance:
+    This box is an appliance now: it starts at boot with no login, and the
+    panel is the only interface.
+
+      journalctl --user -u alabanza -f           # watch it
+      systemctl --user stop alabanza             # hand the GPIO back
+      systemctl --user disable --now alabanza    # ...and stop it doing that at boot
+
+    The service owns the GPIO and the panel, so stop it before any of the
+    bench commands below — otherwise they report 'GPIO busy' and it reads
+    like a wiring fault.
+
+NEXT
+else
+    cat <<'NEXT'
+
+    Autostart is installed but NOT enabled, so the GPIO and the panel stay
+    free for bench work. Turn it on when the unit is ready to be a product:
 
       systemctl --user enable --now alabanza     # start at boot
-      systemctl --user disable --now alabanza    # back to running it by hand
       journalctl --user -u alabanza -f           # watch it
 
-    Next:
+NEXT
+fi
+
+cat <<'NEXT'
+    Bench commands:
       cd app
       uv run --extra test pytest                       # Tier 1: logic, no hardware
       uv run --extra test --extra device pytest -m device   # Tier 2: is it wired?
