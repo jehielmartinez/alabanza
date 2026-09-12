@@ -117,3 +117,26 @@ class TestAKeypadThatStaysGoneReachesThePanel:
         from alabanza.app import MSG_CHARS
         for message in (input_gpio.MSG_KEYPAD_LOST, input_gpio.MSG_KEYPAD_BACK):
             assert len(message) <= MSG_CHARS, f"{message!r} is too wide"
+
+
+class TestTheHardwareTestAgreesWithTheKeypad:
+    """hwtest.py writes the 3x4 legend down a second time, because importing
+    this module to draw a screen would drag gpiozero onto a laptop. That is
+    the same bargain the pin map makes, and it holds only while something
+    checks it — a legend that drifts would have the tool confidently print
+    the wrong key for a correctly wired board."""
+
+    def test_every_key_matches_the_event_the_matrix_emits(self):
+        from alabanza.hwtest import KEYPAD_LAYOUT, control_for
+        from alabanza.input_gpio import KEYPAD
+        from alabanza.pins import KEYPAD_COLS, KEYPAD_ROWS
+
+        assert len(KEYPAD) == len(KEYPAD_LAYOUT)
+        for r, (events, legend) in enumerate(zip(KEYPAD, KEYPAD_LAYOUT)):
+            assert len(events) == len(legend)
+            for c, (event, char) in enumerate(zip(events, legend)):
+                control = control_for(event)
+                assert control is not None, f"{event} names no control"
+                assert control.glyph == char, \
+                    f"row {r} col {c}: matrix says {control.glyph}, legend {char}"
+                assert control.pins == (KEYPAD_ROWS[r], KEYPAD_COLS[c])

@@ -22,6 +22,8 @@ test = ["pytest>=8.0"]
 
 [project.scripts]
 alabanza = "alabanza.__main__:main"
+# Bring-up tool for a control PCB: press every key, watch the panel name it.
+alabanza-hwtest = "alabanza.hwtest:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
