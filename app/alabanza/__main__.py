@@ -135,6 +135,11 @@ def run(screen: "curses.window", library_dir: Path, video: bool,
             if controls:
                 for event in controls.poll():
                     app.handle(event)
+                # The keypad scans on its own thread, so a failure there can
+                # only reach the operator through the panel.
+                fault = controls.take_fault()
+                if fault:
+                    app.flash(fault, 6)
             vm = app.tick()
             for display in displays:
                 display.render(vm)
