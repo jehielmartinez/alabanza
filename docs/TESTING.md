@@ -19,6 +19,7 @@ mid-service, in ten identical copies. That shapes everything below:
 |---|---|---|---|
 | **1. Automated, off-device** | the logic, the screens, the failure paths | any laptop, ~0.1 s | every change |
 | **2. Automated, on-device** | the hardware is wired and configured | the Pi, `-m device` | Phase 1 onward, and per unit |
+| **2b. Interactive, on-device** | every control reports the right thing, and the panel shows it | the Pi, by hand | bringing up a board, and per unit |
 | **3. Endurance & abuse** | it survives a real service and a power yank | the Pi, by hand | Phase 3–4 |
 | **4. Batch acceptance** | *this* unit is fit to hand over | each of the 10, by hand | Phase 5 |
 | **5. The volunteer test** | someone who has never seen it can use it | a real person | before shipping |
@@ -38,10 +39,17 @@ UPDATE_GOLDEN=1 uv run --extra test pytest   # accept intended screen changes
 |---|---|---|
 | `test_library.py` | filename and manifest parsing, T9 search, browsing | 16 |
 | `test_settings.py` | atomic saves, corrupt files, per-output volume | 11 |
-| `test_audio.py` | which sink each output resolves to | 9 |
-| `test_controls.py` | the control set, and the four relocated functions | 24 |
-| `test_bluetooth.py` | pairing, timeouts, losing a speaker mid-hymn | 27 |
-| `test_screens.py` | golden pixels + layout invariants | 39 |
+| `test_audio.py` | which sink each output resolves to | 8 |
+| `test_controls.py` | the control set, and the four relocated functions | 35 |
+| `test_bluetooth.py` | pairing, timeouts, losing a speaker mid-hymn | 32 |
+| `test_screens.py` | golden pixels + layout invariants | 41 |
+| `test_pins.py` | the pin map, and the documents that copy it | 10 |
+| `test_hwtest.py` | the bring-up panel: coverage map, splash, bus failures | 16 |
+| `test_player_video.py` | which video options mpv gets, and when video is off | 6 |
+| `test_input_gpio.py` | the keypad scan thread's failure behaviour | 7 |
+
+`test_input_gpio.py` imports the GPIO backend, so it needs `gpiozero` and
+skips where the `device` extra is not installed. Nothing in it touches a pin.
 
 ### Three things make this tier possible
 
@@ -106,6 +114,40 @@ must be bind-mounted or **every pairing is lost on reboot**.
 
 Run it after wiring each peripheral in Phase 1: the failure names the pin.
 
+## Tier 2b — the controls and the panel, by hand
+
+```sh
+uv run alabanza-hwtest          # --no-oled if the panel is not populated yet
+```
+
+Tier 2 asks *is this pin claimable*, which is a question about wiring that a
+machine can settle alone. It cannot ask whether **the key marked 7 reports a
+7** — and a swapped row, a mirrored J1 and a mislabelled switch are the top
+three items on [HARDWARE.md](HARDWARE.md)'s pre-fab checklist. That one needs
+a finger and an eye, so it gets a tool instead of a test.
+
+Press a control; the panel names it in 20 px with the BCM pins it arrived on,
+and a coverage map along the bottom fills in as each of the 21 controls
+responds. A board is signed off by sweeping it until the map is full. On exit
+the terminal lists whatever never answered, with its pins:
+
+```
+19 control(s) never responded:
+  Tecla 7        BCM13 BCM12
+  Rueda +        BCM17 BCM27
+```
+
+It tests the panel at the same time, because everything it reports, it
+reports on the OLED. The startup frame draws a border on the outermost pixels
+and a line of accented Spanish: a clipped border is a wrong panel height or
+start-line, missing accents mean the vendored font did not load. The run also
+ends with a frame count and how many I2C writes failed — at the 400 kHz
+`provision.sh` sets, that number is a real measurement of the bus, and the
+difference between a panel worth soldering down and one worth re-checking.
+
+Exits non-zero if any control never responded or the panel dropped a frame,
+so it works as a gate. `--seconds N` bounds a run for scripting.
+
 ## Tier 3 — endurance and abuse (by hand, Phase 3–4)
 
 Automation cannot answer these; a person and a stopwatch can.
@@ -128,11 +170,12 @@ Every unit passes this before it goes to a church. It is deliberately short
 enough to actually get done ten times:
 
 1. `pytest -m device` — all green
-2. Hymn `001` plays to the jack, to a Bluetooth speaker, and to HDMI
-3. The OLED shows a sane battery percentage, and it falls under load *(product stage only — no gauge on prototype units)*
-4. Power yanked mid-hymn, then boots clean
-5. Pair the church's own speaker; reboot; it reconnects by itself
-6. The laminated card matches what the device actually does
+2. `alabanza-hwtest` — all 21 controls respond, no failed panel writes
+3. Hymn `001` plays to the jack, to a Bluetooth speaker, and to HDMI
+4. The OLED shows a sane battery percentage, and it falls under load *(product stage only — no gauge on prototype units)*
+5. Power yanked mid-hymn, then boots clean
+6. Pair the church's own speaker; reboot; it reconnects by itself
+7. The laminated card matches what the device actually does
 
 ## Tier 5 — the volunteer test
 
@@ -145,7 +188,10 @@ This is the real exit criterion for Phase 4.
 
 - **`bt_bluez.py`** has no automated coverage and cannot have any off-device;
   it is the reason Tier 2 exists. Its *flows* are covered through `FakeBackend`.
-- **`player.py`** wraps libmpv thinly. Tests would be testing mpv.
+- **`player.py`** wraps libmpv thinly, so its *behaviour* is left to mpv —
+  but which options mpv is constructed with is ours, and that is covered
+  (`test_player_video.py`), because getting it wrong froze the whole
+  appliance once. Tier 2 also checks that property reads still return.
 - **The curses UI** is a development convenience; the OLED is the product.
 - **`tools/`** (downloader, provisioner) run once at provisioning with a human
   watching. The output they produce — the manifest — is covered in Tier 1.
@@ -166,3 +212,15 @@ that reading the code did not reveal:
 
 Four of the six are in the Bluetooth and screen layers — which is exactly
 where the spec says the risk is.
+
+And two the suite did **not** catch, found the expensive way instead — an
+evening on the bench, chasing what looked like a dead keypad:
+
+| Found by | Bug |
+|---|---|
+| a frozen device | mpv with no display attached stopped answering `volume`, and the loop reads it every tick — keypad, keyboard and panel all froze together |
+| a dead keypad | one exception ended the scan thread while the app ran on, with nothing on the panel to say so |
+
+Both now have tests that reproduce them, which is the only useful response to
+a bug that got out. The first is also the more instructive: neither failure
+was where the symptom pointed, and the controls were never at fault.

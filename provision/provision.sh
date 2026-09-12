@@ -369,8 +369,14 @@ cat <<'NEXT'
       cd app
       uv run --extra test pytest                       # Tier 1: logic, no hardware
       uv run --extra test --extra device pytest -m device   # Tier 2: is it wired?
+      uv run alabanza-hwtest                           # Tier 2b: press every control
       uv run alabanza --gpio --oled-device --bt real   # drive it by hand
 
     Tier 2 failures name the pin, not the symptom. See docs/TESTING.md.
+
+    Tier 2b is the one to run on a freshly built board. Tier 2 proves a pin
+    can be claimed; only a finger proves the key marked 7 reports a 7, which
+    is what catches a swapped row or a mirrored connector. It draws on the
+    OLED, so it exercises the panel at the same time.
 
 NEXT

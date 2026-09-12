@@ -40,7 +40,14 @@ install** to a bench device you can run hymns on.
    cd ~/alabanza/app
    uv run --extra test pytest                              # Tier 1
    uv run --extra test --extra device pytest -m device     # Tier 2
+   uv run alabanza-hwtest                                  # Tier 2b, by hand
    ```
+
+   Tier 2 proves each pin can be claimed. `alabanza-hwtest` is the one that
+   proves the key marked 7 reports a 7 — press every control and watch the
+   coverage map on the OLED fill in. Run it on any board you have just
+   built; [TESTING.md](../docs/TESTING.md) explains what it catches that
+   Tier 2 cannot.
 
 ## Then, every time you change something
 
