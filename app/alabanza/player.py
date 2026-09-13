@@ -176,6 +176,18 @@ class Player:
             # the image, or a freeze-frame, and never anything else.
             "keep_open": True,
             "log_handler": None,
+            # mpv ships a Lua script each for the OSC, stats, console,
+            # ytdl, select, positioning and commands, and starts a Lua VM
+            # per script. None can do anything on a device with no window
+            # and no keyboard, and on the Zero W they are measurable startup
+            # time and seven idle threads. (--load-scripts=no would not do:
+            # it only covers user scripts, not these built-ins.)
+            "ytdl": False,
+            "load_stats_overlay": False,
+            "load_console": False,
+            "load_select": False,
+            "load_positioning": False,
+            "load_commands": False,
         }
         # One dict rather than keywords plus a splat, because the probe has to
         # be able to override `vid` — with no display attached it turns video

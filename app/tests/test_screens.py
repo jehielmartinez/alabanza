@@ -183,3 +183,80 @@ def test_a_long_title_scrolls_rather_than_being_cut(harness):
     vm = ViewModel(title="279 · ¡Santo! ¡Santo! ¡Santo! Señor Omnipotente")
     frames = {as_text(render(vm, now=t)) for t in (0.0, 1.0, 2.0, 3.0)}
     assert len(frames) > 1, "a title too long to fit must move"
+
+
+class TestRedrawOnlyWhenPixelsChange:
+    """While a hymn plays the progress float moves every tick; the panel must
+    only be redrawn when that moves the bar by a pixel."""
+
+    def test_sub_pixel_progress_changes_share_a_key(self):
+        from alabanza.display import ViewModel
+        from alabanza.oled import _PROGRESS_STEPS, _render_key
+        a = ViewModel(state="playing", progress=0.400)
+        b = ViewModel(state="playing", progress=0.400 + 0.2 / _PROGRESS_STEPS)
+        c = ViewModel(state="playing", progress=0.400 + 1.2 / _PROGRESS_STEPS)
+        assert _render_key(a) == _render_key(b)
+        assert _render_key(a) != _render_key(c)
+
+    def test_everything_else_still_counts(self):
+        from alabanza.display import ViewModel
+        from alabanza.oled import _render_key
+        assert _render_key(ViewModel(time_pos="0:01")) != _render_key(ViewModel(time_pos="0:02"))
+        assert _render_key(ViewModel()) == _render_key(ViewModel())
+
+    def test_the_key_rounds_the_same_way_render_draws(self):
+        """A key that says 'same' must produce identical pixels."""
+        from alabanza.display import ViewModel
+        from alabanza.oled import _PROGRESS_STEPS, _render_key, render
+        a = ViewModel(state="playing", title="x", progress=0.3)
+        b = ViewModel(state="playing", title="x", progress=0.3 + 0.4 / _PROGRESS_STEPS)
+        assert _render_key(a) == _render_key(b)
+        assert render(a, now=0).tobytes() == render(b, now=0).tobytes()
+
+
+class TestTheMarqueeSteps:
+    def test_frames_within_a_step_are_identical(self):
+        from alabanza.display import ViewModel
+        from alabanza.oled import MARQUEE_FPS, render
+        vm = ViewModel(state="playing", title="Un título mucho más largo que el panel")
+        step = 1.0 / MARQUEE_FPS
+        assert render(vm, now=1.0).tobytes() == render(vm, now=1.0 + step * 0.9).tobytes()
+        assert render(vm, now=1.0).tobytes() != render(vm, now=1.0 + step * 1.1).tobytes()
+
+    def test_it_still_moves_24_px_per_second(self):
+        from alabanza.oled import MARQUEE_FPS, MARQUEE_PX
+        assert MARQUEE_FPS * MARQUEE_PX == 24
+
+
+class TestPagePacking:
+    """pack_pages() must produce exactly what luma's pixel loop produces:
+    byte (page p, column x) holds pixels (x, 8p..8p+7), top pixel in bit 0."""
+
+    @staticmethod
+    def _luma_way(image):
+        w, h = image.size
+        buf = bytearray(w * h // 8)
+        for idx, pix in enumerate(image.getdata()):
+            x, y = idx % w, idx // w
+            if pix > 0:
+                buf[(y // 8) * w + x] |= 1 << (y % 8)
+        return bytes(buf)
+
+    def test_matches_lumas_loop_on_random_frames(self):
+        import random
+        from PIL import Image
+        from alabanza.oled import HEIGHT, WIDTH, pack_pages
+        rng = random.Random(7)
+        for _ in range(5):
+            img = Image.new("1", (WIDTH, HEIGHT), 0)
+            px = img.load()
+            for _ in range(900):
+                px[rng.randrange(WIDTH), rng.randrange(HEIGHT)] = 255
+            assert pack_pages(img) == self._luma_way(img)
+
+    def test_matches_on_a_real_screen(self):
+        from alabanza.display import ViewModel
+        from alabanza.oled import pack_pages, render
+        img = render(ViewModel(state="playing", title="Con voz Benigna", progress=0.3), now=0)
+        assert pack_pages(img) == self._luma_way(img)
+        assert len(pack_pages(img)) == 1024

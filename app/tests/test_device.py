@@ -43,15 +43,33 @@ class TestTheControls:
     """Wire one at a time and re-run; each failure names what is not wired."""
 
     def test_every_pin_in_the_map_can_be_claimed(self):
+        """Keypad pins are claimed here. The seven others belong to the
+        kernel's gpio-keys and rotary-encoder drivers once provision.sh has
+        loaded the overlays, and a claim would rightly fail with 'GPIO busy';
+        for those the proof of wiring is that the input devices exist and
+        advertise every control. On a board without the overlays they are
+        claimed like the rest."""
         from gpiozero import Button
 
+        from alabanza.input_evdev import REL_X, KEYS, _has_bit, discover
         from alabanza.pins import CONTROLS
+
+        kernel_owned = discover()
         for name, pins in CONTROLS.items():
+            if kernel_owned and not name.startswith("keypad"):
+                continue
             for pin in pins:
                 try:
                     Button(pin, pull_up=True).close()
                 except Exception as exc:            # noqa: BLE001 - report which
                     pytest.fail(f"{name} pin {pin}: {exc}")
+        if not kernel_owned:
+            return
+        served = " ".join(kernel_owned.values())
+        for code in KEYS:
+            assert f"key {code}" in served, \
+                f"no input device offers key {code} — is its gpio-key overlay in config.txt?"
+        assert "wheel" in served, "no rotary-encoder input device"
 
 
 class TestAudio:

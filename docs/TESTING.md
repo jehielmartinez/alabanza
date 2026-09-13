@@ -107,7 +107,10 @@ logic right*. Everything is marked `device` and deselects itself anywhere that
 is not a Raspberry Pi, so the laptop suite stays clean.
 
 It checks: the I2C bus exists and the OLED answers at `0x3C`; a frame reaches
-the panel; every GPIO pin in the [pin map](BUILD-PLAN.md) can be claimed;
+the panel; every keypad pin in the [pin map](BUILD-PLAN.md) can be claimed and
+the kernel's input devices for the D-pad, push and wheel exist and advertise
+every control (those seven pins belong to the `gpio-keys` and
+`rotary-encoder` drivers, see [provision/README.md](../provision/README.md));
 PipeWire is running and the USB DAC resolves; the Bluetooth adapter is present
 and powered; and `/var/lib/bluetooth` is writable — under a read-only root that
 must be bind-mounted or **every pairing is lost on reboot**.

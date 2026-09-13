@@ -17,6 +17,7 @@ Layout (128x64):
 """
 
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -145,15 +146,31 @@ def _status_bar(draw, vm: ViewModel) -> None:
     draw.line((0, SEP_Y, WIDTH, SEP_Y), fill=1)
 
 
-def _marquee_px(draw, y, text, font, px_per_sec=24, now=None):
+# The marquee moves MARQUEE_PX pixels MARQUEE_FPS times a second: 24 px/s,
+# as before, but in 3-pixel steps rather than one pixel per frame. Every
+# step is a full re-render and a 1 KB I2C write, and at 24 steps a second
+# that was half the Zero W's core for the length of any hymn whose title
+# is wider than the glass -- which is most of them. Eight steps a second
+# reads the same at 24 px/s and costs a third.
+MARQUEE_FPS = 8
+MARQUEE_PX = 3
+
+
+def marquee_phase(now: float | None = None) -> int:
+    """Which marquee step `now` falls in. Two frames in the same step draw
+    the same pixels, which is what lets OledDisplay skip one of them."""
+    now = time.monotonic() if now is None else now
+    return int(now * MARQUEE_FPS)
+
+
+def _marquee_px(draw, y, text, font, now=None):
     """Draw text at y; pixel-scroll it when wider than the screen."""
     if _w(draw, text, font) <= WIDTH:
         draw.text((0, y), text, font=font, fill=1)
         return
     loop = text + "  ·  "
     loop_w = _w(draw, loop, font)
-    now = time.monotonic() if now is None else now
-    offset = int(now * px_per_sec) % loop_w
+    offset = (marquee_phase(now) * MARQUEE_PX) % loop_w
     draw.text((-offset, y), loop + loop, font=font, fill=1)
 
 
@@ -231,12 +248,51 @@ def render(vm: ViewModel, now: float | None = None) -> Image.Image:
     return img
 
 
+# The progress bar has WIDTH - 3 pixels of travel (render() draws it inside a
+# one-pixel frame). Two ViewModels whose progress rounds to the same pixel
+# draw the same bar, and while a hymn plays progress moves every 50 ms tick
+# by a fraction of a pixel -- so comparing the raw float redrew the panel
+# twenty times a second for the whole hymn, 46% of the Zero W's core.
+_PROGRESS_STEPS = WIDTH - 3
+
+
+def _render_key(vm: ViewModel) -> ViewModel:
+    """The ViewModel with everything that does not change the pixels folded
+    away, so equality means 'would draw the same frame'."""
+    if vm.progress is None:
+        return vm
+    steps = round(max(0.0, min(1.0, vm.progress)) * _PROGRESS_STEPS)
+    return replace(vm, progress=steps / _PROGRESS_STEPS)
+
+
 def _marquee_active(vm: ViewModel) -> bool:
     """Whether render() would animate this frame on the clock: a title too
     wide for the glass scrolls, and only then does an unchanged model still
     need redrawing."""
     return (not vm.lines and bool(vm.title)
             and FONT_TITLE.getlength(vm.title) > WIDTH)
+
+
+# Each byte value with its bits reversed, for bytes.translate().
+_BIT_REVERSE = bytes(int(f"{i:08b}"[::-1], 2) for i in range(256))
+
+
+def pack_pages(image: Image.Image) -> bytes:
+    """A 128x64 1-bit image as the SSD1306/1309 page buffer, done in C.
+
+    The panel wants byte (page p, column x) to hold pixels (x, 8p..8p+7)
+    with the top pixel in bit 0. luma builds that with a Python loop over
+    all 8192 pixels, which is 36 ms on the Zero W -- more than drawing the
+    frame -- and at eight marquee steps a second that was a third of the
+    core. PIL can do it: transpose so each column becomes a row (tobytes then
+    packs eight vertical pixels per byte, top pixel in bit 7), reverse the
+    bits of every byte with a translate table, and transpose the resulting
+    128x8 byte matrix once more so pages come out page-major.
+    """
+    columns = image.transpose(Image.Transpose.TRANSPOSE).tobytes()   # x-major, 8 bytes per column
+    columns = columns.translate(_BIT_REVERSE)                        # top pixel into bit 0
+    pages = Image.frombytes("L", (HEIGHT // 8, WIDTH), columns)      # 8 wide, 128 tall
+    return pages.transpose(Image.Transpose.TRANSPOSE).tobytes()      # page-major
 
 
 class OledDisplay:
@@ -250,7 +306,12 @@ class OledDisplay:
             device = ssd1309(i2c(port=1, address=0x3C))
         self.device = device
         self._last: bytes | None = None
-        self._last_vm: ViewModel | None = None
+        self._last_vm: tuple | None = None
+        # The fast page packer knows the SSD1306 family's layout and nothing
+        # else; an emulator or another controller keeps luma's own display().
+        self._fast = (hasattr(device, "_pages") and hasattr(device, "_colstart")
+                      and getattr(device, "size", None) == (WIDTH, HEIGHT)
+                      and getattr(device, "rotate", 0) == 0)
 
     def close(self) -> None:
         """Blank the panel.
@@ -282,12 +343,26 @@ class OledDisplay:
         # scrolling, which animates on the clock with the model unchanged.
         # The pixel compare below still gates the I2C write, which is the
         # expensive part on every board.
-        if vm == self._last_vm and not _marquee_active(vm):
+        now = time.monotonic()
+        key = (_render_key(vm), marquee_phase(now) if _marquee_active(vm) else 0)
+        if key == self._last_vm:
             return
-        self._last_vm = vm
-        image = render(vm).convert(self.device.mode)
+        self._last_vm = key
+        image = render(vm, now=now).convert(self.device.mode)
         data = image.tobytes()
         if data == self._last:
             return
         self._last = data
-        self.device.display(image)
+        if self._fast:
+            self._display_fast(image)
+        else:
+            self.device.display(image)
+
+    def _display_fast(self, image: Image.Image) -> None:
+        """luma's display() with pack_pages() in place of its pixel loop:
+        the same address-window command, then the whole buffer in one I2C
+        transaction (luma already does that part via i2c_rdwr)."""
+        dev = self.device
+        dev.command(dev._const.COLUMNADDR, dev._colstart, dev._colend - 1,
+                    dev._const.PAGEADDR, 0x00, dev._pages - 1)
+        dev.data(list(pack_pages(image)))

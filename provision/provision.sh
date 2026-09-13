@@ -120,6 +120,37 @@ else
     ok "SPI disabled — BCM 7/8 released for the D-pad"
 fi
 
+# The D-pad, the encoder push and the wheel are read through the kernel's
+# gpio-keys and rotary-encoder drivers rather than gpiozero: interrupt
+# driven, delivered on /dev/input, and free of lgpio's alert thread, which
+# cost the Zero W 12-15% of its core for nothing. The key codes are the
+# ones app/alabanza/input_evdev.py expects; the pins are pins.py. Defaults
+# of gpio-key are active-low with the internal pull-up, which is how every
+# switch is wired (HARDWARE.md). steps-per-period is a property of the
+# EC11 fitted: this one has two detents per quadrature period, measured on
+# the bench -- five clicks gave two events in full-period mode -- so 2, and
+# one click is one event. A different encoder batch may want 1 or 4.
+CONFIG=/boot/firmware/config.txt
+if grep -q '^dtoverlay=rotary-encoder,pin_a=17,pin_b=27,relative_axis=1,steps-per-period=2' "$CONFIG"; then
+    ok "control overlays already in config.txt"
+else
+    sudo sed -i '/^# Alabanza controls/,/^# end Alabanza controls/d' "$CONFIG"
+    sudo tee -a "$CONFIG" >/dev/null <<'OVERLAYS'
+# Alabanza controls: kernel input drivers for the D-pad, push and wheel.
+# Managed by provision/provision.sh -- edit there, not here.
+[all]
+dtoverlay=rotary-encoder,pin_a=17,pin_b=27,relative_axis=1,steps-per-period=2
+dtoverlay=gpio-key,gpio=22,keycode=139,label=alabanza-push
+dtoverlay=gpio-key,gpio=23,keycode=28,label=alabanza-centre
+dtoverlay=gpio-key,gpio=25,keycode=105,label=alabanza-left
+dtoverlay=gpio-key,gpio=26,keycode=106,label=alabanza-right
+dtoverlay=gpio-key,gpio=7,keycode=103,label=alabanza-up
+dtoverlay=gpio-key,gpio=8,keycode=108,label=alabanza-down
+# end Alabanza controls
+OVERLAYS
+    warn "control overlays added to config.txt — take effect after a reboot"
+fi
+
 # Persistent, bounded journald. Pi OS ships
 # /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf, which keeps
 # the journal in /run -- so it is RAM only, it is lost on every reboot, and
@@ -403,7 +434,7 @@ fi
 
 step "Checking group membership"
 
-NEEDED_GROUPS=(gpio i2c audio video)
+NEEDED_GROUPS=(gpio i2c audio video input)
 ADDED=0
 for grp in "${NEEDED_GROUPS[@]}"; do
     if id -nG "$USER" | tr ' ' '\n' | grep -qx "$grp"; then

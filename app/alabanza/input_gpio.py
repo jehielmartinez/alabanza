@@ -31,6 +31,7 @@ from collections import deque
 from gpiozero import Button, DigitalInputDevice, OutputDevice, RotaryEncoder
 
 from .events import Event, Kind
+from .input_evdev import EvdevControls
 from .pins import (
     DPAD_CENTRE,
     DPAD_DOWN,
@@ -60,6 +61,8 @@ log = logging.getLogger(__name__)
 
 BOUNCE = 0.02        # software debounce, both for gpiozero and the matrix
 SEEK_REPEAT = 0.4    # held ◀/▶ repeats at this interval (SPEC: "held = repeat")
+                     # (input_evdev.py carries the same two numbers for the
+                     # kernel path; change both or the two backends drift)
 _SETTLE = 50e-6      # let a driven row settle before reading the columns
 # Keypad samples per second, on its own thread. 50 Hz once; 30 Hz since the
 # Zero W, where each wake-up of the thread is Python and scheduler overhead
@@ -259,25 +262,21 @@ class GpioInput:
         self._last_error = ""      # why the keypad stopped, for the journal
         self._matrix = _Matrix()
         self._buttons: list[Button] = []
+        self._encoder: RotaryEncoder | None = None
+        self._evdev: EvdevControls | None = None
 
-        # The D-pad and the encoder push: one GPIO each, internal pull-up,
-        # switch to ground (HARDWARE.md §2, §4).
-        self._button(DPAD_CENTRE, Kind.PLAY_PAUSE)
-        self._button(DPAD_UP, Kind.UP)
-        self._button(DPAD_DOWN, Kind.DOWN)
-        self._button(ENCODER_PUSH, Kind.PUSH, release=Kind.PUSH_RELEASE,
-                     held=Kind.PUSH_HELD)
-        # Seek is the one control the spec asks to repeat while held.
-        self._button(DPAD_LEFT, Kind.SEEK_BACK, repeat=True)
-        self._button(DPAD_RIGHT, Kind.SEEK_FWD, repeat=True)
-
-        # max_steps=0 leaves the count unbounded: the wheel is a relative
-        # control (volume, list cursor) and must never saturate at an end.
-        # No bounce_time — the RC filter on A/B (HARDWARE.md §3) is the
-        # debounce, and doing it twice eats detents on a fast spin.
-        self._encoder = RotaryEncoder(ENCODER_A, ENCODER_B, max_steps=0)
-        self._encoder.when_rotated_clockwise = self._emit(Kind.WHEEL_CW)
-        self._encoder.when_rotated_counter_clockwise = self._emit(Kind.WHEEL_CCW)
+        # The D-pad, the encoder push and the wheel come from the kernel's
+        # own drivers when provision.sh has put the overlays in config.txt
+        # (input_evdev.py says why). gpiozero remains as the fallback for a
+        # board that has not been provisioned for that yet -- it works, at
+        # the price of lgpio's alert thread, which is most of the app's idle
+        # CPU on a Zero W.
+        if EvdevControls.available():
+            self._evdev = EvdevControls(self._queue)
+        else:
+            log.warning("kernel input devices not found; using gpiozero "
+                        "callbacks (re-run provision.sh and reboot)")
+            self._gpiozero_controls()
 
         # The matrix is scanned on its own thread. Everything else already
         # arrives by interrupt -- gpiozero's callbacks for the buttons and the
@@ -333,6 +332,26 @@ class GpioInput:
             self._stop.wait(FAULT_PERIOD if failures >= FAULT_AFTER
                             else 1.0 / SCAN_HZ)
 
+    def _gpiozero_controls(self) -> None:
+        # The D-pad and the encoder push: one GPIO each, internal pull-up,
+        # switch to ground (HARDWARE.md §2, §4).
+        self._button(DPAD_CENTRE, Kind.PLAY_PAUSE)
+        self._button(DPAD_UP, Kind.UP)
+        self._button(DPAD_DOWN, Kind.DOWN)
+        self._button(ENCODER_PUSH, Kind.PUSH, release=Kind.PUSH_RELEASE,
+                     held=Kind.PUSH_HELD)
+        # Seek is the one control the spec asks to repeat while held.
+        self._button(DPAD_LEFT, Kind.SEEK_BACK, repeat=True)
+        self._button(DPAD_RIGHT, Kind.SEEK_FWD, repeat=True)
+
+        # max_steps=0 leaves the count unbounded: the wheel is a relative
+        # control (volume, list cursor) and must never saturate at an end.
+        # No bounce_time — the RC filter on A/B (HARDWARE.md §3) is the
+        # debounce, and doing it twice eats detents on a fast spin.
+        self._encoder = RotaryEncoder(ENCODER_A, ENCODER_B, max_steps=0)
+        self._encoder.when_rotated_clockwise = self._emit(Kind.WHEEL_CW)
+        self._encoder.when_rotated_counter_clockwise = self._emit(Kind.WHEEL_CCW)
+
     def _emit(self, kind: Kind):
         def push():
             self._queue.append(Event(kind))
@@ -381,6 +400,9 @@ class GpioInput:
         self._stop.set()
         self._scanner.join(timeout=1.0)
         self._matrix.close()
-        self._encoder.close()
+        if self._evdev is not None:
+            self._evdev.close()
+        if self._encoder is not None:
+            self._encoder.close()
         for button in self._buttons:
             button.close()

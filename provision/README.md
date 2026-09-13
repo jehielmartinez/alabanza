@@ -268,16 +268,80 @@ core with. Measured on the Zero W, idle on the home screen:
 |---|---|---|
 | ~20% | the panel re-drawn with PIL text rendering 20× a second, unchanged | an unchanged ViewModel is not drawn; a scrolling marquee still is |
 | ~12% | keypad scan: three kernel line requests per row per pass through gpiozero, plus a 50 µs sleep that costs 190 µs | rows claimed once as open-drain outputs (the kernel's emulation is exactly the Hi-Z release), direct lgpio writes and reads, no sleep, 30 Hz |
-| **12–15%** | **lgpio's alert thread**, which every gpiozero `Button` and the `RotaryEncoder` need: it polls the event descriptors with a tiny timeout and costs this much with a single callback registered and no edges at all | **not fixed** — see below |
+| 12–15% | lgpio's alert thread, which every gpiozero `Button` and the `RotaryEncoder` need: it polls the event descriptors with a tiny timeout and costs this much with a single callback registered and no edges at all | the D-pad, push and wheel moved to the kernel's own drivers — next section |
 | ~6% | the main loop at 20 Hz | — |
 
-From ~60% to ~30%, of which half is the alert thread. The way out of that
-last one is to stop using gpiozero edge callbacks: either poll the six
-buttons and the encoder from the keypad thread (cheap, but 33 ms sampling
-is marginal for a fast encoder spin), or hand them to the kernel's own
-`rotary-encoder` and `gpio-key` overlays — both ship with Pi OS, the
-drivers are interrupt-driven, and the app would read them from `/dev/input`
-at essentially no cost. The second is the right design for a single-core
-appliance; it is a change to `input_gpio.py`, `config.txt`, the Tier 2
-tests and `alabanza-hwtest`, and needs the EC11's steps-per-detent measured
-on the bench.
+### Playing a hymn
+
+Idle was half the story. With a hymn playing to the Bluetooth speaker the
+app was at 86% and the panel thread alone at 47%, because most titles are
+wider than the glass and the marquee re-rendered and re-sent the frame on
+nearly every 50 ms tick, and because luma packs each frame into the
+panel's page layout with a Python loop over all 8192 pixels (36 ms here,
+more than drawing the frame). Three changes, measured during a hymn:
+
+| Change | Panel thread | App total |
+|---|---|---|
+| before | 47% | 86% |
+| frames compared at pixel resolution (progress rounds to the bar's 125 px) | 47% | 86% |
+| marquee in 3 px steps at 8 fps instead of 1 px at 24 fps, identical frames skipped | 35% | 86% |
+| the page buffer packed by PIL transforms instead of luma's loop (2 ms, was 36) | 22% | 63% |
+
+The box now keeps a third of the core free while streaming, against 8%
+before. mpv's seven built-in Lua scripts are also no longer loaded (OSC,
+stats, console, ytdl, select, positioning, commands): seven idle threads
+and about two seconds of startup on this core, for features a box with no
+window or keyboard cannot use.
+
+### Controls through the kernel
+
+The 3×4 keypad is still scanned by the app (no stock overlay exists for a
+matrix, and after the rewrite above it costs ~4%). The other seven controls
+— D-pad, encoder push, encoder wheel — are handled by the kernel's
+`gpio-keys` and `rotary-encoder` drivers, loaded from the stock overlays
+`provision.sh` appends to `config.txt`:
+
+```
+dtoverlay=rotary-encoder,pin_a=17,pin_b=27,relative_axis=1,steps-per-period=2
+dtoverlay=gpio-key,gpio=22,keycode=139,label=alabanza-push
+dtoverlay=gpio-key,gpio=23,keycode=28,label=alabanza-centre
+…
+```
+
+They are interrupt-driven and deliver a 16-byte record per key edge or
+wheel step on `/dev/input/event*`; the app's thread sleeps in `select()`
+between them (`app/alabanza/input_evdev.py`). Debounce and the hold
+timings are done in the app, in a pure class with laptop tests, so both
+backends behave the same. Discovery is by bus and capability: a host-bus
+device advertising our key codes or a relative X axis. The bus check
+matters — the vc4 HDMI CEC device and a Bluetooth speaker's AVRCP remote
+both advertise those keys, and matching them left the real D-pad dead.
+
+If the overlays are not loaded (a board provisioned before this, or a
+config.txt edit lost), the app logs *kernel input devices not found* and
+falls back to gpiozero, so nothing stops working; it just costs the alert
+thread again.
+
+Two things need the bench, once per encoder part: `steps-per-period` (one
+click of the EC11 must produce exactly one wheel event — the fitted part
+gave two events per five clicks in full-period mode, hence 2) and
+`WHEEL_SIGN` in `input_evdev.py` (clockwise must be clockwise; it depends
+on which channel is wired as A — verified +1 on this board). Watch the raw
+stream with:
+
+```sh
+systemctl --user stop alabanza
+cd ~/alabanza/app && uv run python -c "
+from alabanza.input_evdev import *; import os, select, time
+fds = {os.open(n, os.O_RDONLY|os.O_NONBLOCK): str(n) for n in discover()}
+print(discover()); 
+while True:
+    r,_,_ = select.select(list(fds), [], [], 1)
+    for fd in r:
+        for t,c,v in decode(os.read(fd, 1024)):
+            if t: print(time.monotonic() % 100, fds[fd], 'type', t, 'code', c, 'value', v)"
+```
+
+Tier 2 (`pytest -m device`) no longer claims those seven pins — the kernel
+owns them — and checks instead that the input devices exist and advertise
+every control.
