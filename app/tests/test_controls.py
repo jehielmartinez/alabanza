@@ -74,39 +74,75 @@ class TestSpeedLivesOnTheDpad:
         assert rig.player.speed == 1.0
 
 
-class TestTheDpadBrowsesWhenIdle:
-    def test_down_walks_forward_and_up_walks_back(self, rig):
-        rig.press(Kind.DOWN)
-        first = rig.app.browse
-        rig.press(Kind.DOWN)
-        assert rig.app.browse > first
+class TestBrowsingWhenIdle:
+    """Up and clockwise are a higher hymn number; down and counter-clockwise
+    a lower one. The first demo had ▼ walking upwards, and the operator
+    reached for the knob to browse -- so both now do, the obvious way."""
+
+    def test_up_walks_to_higher_numbers_and_down_back(self, rig):
         rig.press(Kind.UP)
+        first = rig.app.browse
+        rig.press(Kind.UP)
+        assert rig.app.browse > first
+        rig.press(Kind.DOWN)
         assert rig.app.browse == first
 
-    def test_browsing_clears_a_half_typed_number(self, rig):
+    def test_the_wheel_browses_the_same_way(self, rig):
+        rig.press(Kind.WHEEL_CW)
+        first = rig.app.browse
+        rig.press(Kind.WHEEL_CW)
+        assert rig.app.browse > first
+        rig.press(Kind.WHEEL_CCW)
+        assert rig.app.browse == first
+
+    def test_the_wheel_does_not_touch_the_volume_while_idle(self, rig):
+        before = rig.player.volume
+        rig.press(Kind.WHEEL_CW, Kind.WHEEL_CCW)
+        assert rig.player.volume == before
+
+    def test_browsing_continues_from_a_half_typed_number(self, rig):
+        """Type 27, turn the knob: the next hymn after 27, shown as a hymn."""
+        rig.type_number(27)
+        rig.press(Kind.WHEEL_CW)
+        assert rig.app.entry == ""
+        assert rig.app.browse == rig.app.library.neighbor(27, +1)
         rig.type_number(27)
         rig.press(Kind.DOWN)
         assert rig.app.entry == ""
+        assert rig.app.browse == rig.app.library.neighbor(27, -1)
 
-
-class TestTheWheelIsAlwaysVolume:
-    def test_it_works_while_idle(self, rig):
-        before = rig.player.volume
+    def test_the_wheel_wraps_from_the_last_hymn_to_the_first(self, rig):
+        last, first = rig.app.library.numbers[-1], rig.app.library.numbers[0]
+        rig.type_number(last)
         rig.press(Kind.WHEEL_CW)
-        assert rig.player.volume == before + 2
+        assert rig.app.browse == first
+        rig.press(Kind.WHEEL_CCW)
+        assert rig.app.browse == last
 
-    def test_it_works_while_playing(self, rig):
+
+class TestTheWheelIsVolumeWhilePlaying:
+    def playing(self, rig):
         rig.type_number(5)
-        rig.press(Kind.CONFIRM, Kind.WHEEL_CCW)
-        assert rig.player.volume == 78
+        rig.press(Kind.CONFIRM)
+        return rig
+
+    def test_one_click_is_one_percent(self, rig):
+        self.playing(rig)
+        before = rig.player.volume
+        rig.press(Kind.WHEEL_CCW)
+        assert rig.player.volume == before - 1
+        rig.press(Kind.WHEEL_CW, Kind.WHEEL_CW)
+        assert rig.player.volume == before + 1
 
     def test_the_level_is_remembered_against_the_current_output(self, rig):
+        self.playing(rig)
         rig.press(Kind.WHEEL_CW)
         assert rig.app.settings.volumes["jack"] == rig.player.volume
 
     def test_each_output_keeps_its_own_level(self, harness):
         rig = harness(settings=Settings(output="jack"))
-        rig.press(Kind.WHEEL_CW, Kind.WHEEL_CW)
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM, Kind.WHEEL_CW, Kind.WHEEL_CW)
         loud = rig.player.volume
         rig.press(Kind.PUSH, Kind.CONFIRM)          # menu -> cycle to Bluetooth
         assert rig.app.settings.output == "bluetooth"

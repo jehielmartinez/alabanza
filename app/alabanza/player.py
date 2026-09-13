@@ -346,6 +346,6 @@ class Player:
         self._mpv.volume = max(0, min(100, value))
 
     def nudge_volume(self, direction: int) -> int:
-        new = min(100, max(0, self.volume + direction * 2))
+        new = min(100, max(0, self.volume + direction))    # 1% per click
         self._mpv.volume = new
         return new

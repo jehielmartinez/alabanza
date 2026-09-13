@@ -106,11 +106,12 @@ class TestBrowsing:
         assert library.neighbor(5, +1) == 14
         assert library.neighbor(14, -1) == 5
 
-    def test_stops_at_the_ends_rather_than_wrapping(self, tmp_path):
+    def test_wraps_at_the_ends(self, tmp_path):
+        """A knob has no end stop: after the last hymn comes the first."""
         write(tmp_path, "005 A.mp4", "014 B.mp4")
         library = scan(tmp_path)
-        assert library.neighbor(14, +1) == 14
-        assert library.neighbor(5, -1) == 5
+        assert library.neighbor(14, +1) == 5
+        assert library.neighbor(5, -1) == 14
 
     def test_lands_somewhere_sane_from_a_gap(self, tmp_path):
         write(tmp_path, "005 A.mp4", "279 C.mp4")

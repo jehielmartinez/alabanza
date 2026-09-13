@@ -286,6 +286,17 @@ class App:
         else:
             self.flash(f"Velocidad: {pct}%", 1.5)
 
+    def _browse_by(self, step: int) -> None:
+        """Move the resting hymn number by `step` existing hymns.
+
+        A half-typed number is where the move starts from, not something to
+        discard: type 12 and turn the knob, and you are at 13. The entry is
+        then absorbed into `browse`, so the panel shows the hymn, not digits.
+        """
+        start = int(self.entry) if self.entry else self.browse
+        self.entry = ""
+        self.browse = self.library.neighbor(start, step)
+
     def _handle_select(self, event: Event) -> None:
         k = event.kind
         if k is Kind.DIGIT:
@@ -318,19 +329,24 @@ class App:
             self.player.seek(SEEK_STEP_SECONDS)
         elif k in (Kind.UP, Kind.DOWN):
             # ▲ ▼ mean "adjust the thing in front of you": the speed of the
-            # hymn that is playing, or which hymn you are looking at
+            # hymn that is playing, or which hymn you are looking at. Up is
+            # more in both cases: faster, or a higher hymn number.
             if self.player.active:
                 self._nudge_speed(+1 if k is Kind.UP else -1)
             else:
-                self.entry = ""
-                self.browse = self.library.neighbor(
-                    self.browse, +1 if k is Kind.DOWN else -1)
+                self._browse_by(+1 if k is Kind.UP else -1)
         elif k in (Kind.WHEEL_CW, Kind.WHEEL_CCW):
-            # decision 6: the wheel is the volume, always — one meaning, so it
-            # can be turned without looking
-            self.settings.volume = self.player.nudge_volume(
-                +1 if k is Kind.WHEEL_CW else -1)
-            self._touch()
+            # The wheel is the volume while a hymn plays -- the one moment
+            # the operator reaches for it without looking -- and browses
+            # the hymn numbers otherwise, clockwise upwards, which is what
+            # a knob next to a number does. Asked for on the bench after
+            # the first demo; decision 6 in SPEC.md says the same now.
+            if self.player.active:
+                self.settings.volume = self.player.nudge_volume(
+                    +1 if k is Kind.WHEEL_CW else -1)
+                self._touch()
+            else:
+                self._browse_by(+1 if k is Kind.WHEEL_CW else -1)
         elif k is Kind.PUSH:
             self.mode = Mode.MENU
             self.menu_pos = 0

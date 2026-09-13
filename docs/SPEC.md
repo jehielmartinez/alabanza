@@ -16,7 +16,7 @@ Production target: **10 units**, cost-optimized. The library turned out to be 72
 | Display | 2.42" SSD1309 OLED, 128×64 | Readable at a glance in a dim room, including for older eyes; same driver family as smaller modules |
 | Keypad | 3×4 matrix (0–9, *, #) | Digit entry, and letters for predictive T9 search. No A–D column: nothing needs it |
 | Buttons | A 5-way **D-pad**: ◀ ▶ ▲ ▼ + centre | One familiar part instead of seven loose buttons. ◀▶ seek, ▲▼ adjust, centre plays/pauses |
-| Encoder | Rotary with push button | Wheel = volume, always. Push = menu |
+| Encoder | Rotary with push button | Wheel = volume while playing, browse the hymn numbers while idle. Push = menu |
 | Storage | 32 GB microSD | OS + app + the 2.1 GB library, with margin |
 | Battery | 2×18650 UPS board (~25 Wh), I2C fuel gauge | 8h+ playback at ~2 W draw; charges in place; usable while charging |
 
@@ -42,8 +42,8 @@ each one is a panel cutout ×10 units and a line on the laminated card.
 | `#` | play the selection | confirm |
 | D-pad centre | play / pause | play / pause (menus never take the transport) |
 | D-pad ◀ ▶ | seek | seek |
-| D-pad ▲ ▼ | **speed** while playing, browse while idle | move the cursor |
-| Wheel | **volume**, always | move the cursor |
+| D-pad ▲ ▼ | **speed** while playing, browse while idle (▲ = higher number) | move the cursor |
+| Wheel | **volume** while playing, browse while idle (clockwise = higher number) | move the cursor |
 | Push | **menu** | select |
 | Push, held 3 s | **power off** | power off |
 
@@ -78,7 +78,7 @@ way an operator queues the next hymn anyway.
 - **Engine**: mpv (libmpv). One engine for video, audio-only, seek, pause, speed.
 - **Speed**: pitch-preserved time-stretch (`scaletempo2`), **75%–125% in 5% steps**, on the D-pad's ▲▼ while a hymn plays. Key never changes — safe for singalong. Shown on OLED. **Resets to 100% on each new hymn.**
 - **Seek**: D-pad ◀/▶ step through the track (default step: 10 s; held = repeat).
-- **Volume**: the encoder wheel, at any time. **Persisted per output** (Jack / BT / HDMI each remember their own level) so switching outputs never produces a surprise.
+- **Volume**: the encoder wheel while a hymn plays, 1% per click; while idle the wheel browses the hymn numbers instead. **Persisted per output** (Jack / BT / HDMI each remember their own level) so switching outputs never produces a surprise.
 
 ## Audio routing
 
@@ -158,7 +158,7 @@ The static image is a replaceable file (`screensaver.png`) with a built-in fallb
    play are conventions nobody has to be taught. Dropped along the way: the
    A–D keypad column, and the dedicated Stop, Speed ± and Menu buttons.
 5. **Audio routing: explicit persisted menu choice; never auto-switches; pause + warn on output loss.**
-6. **Volume: rotary during playback; per-output memory.**
+6. **Volume: rotary during playback, 1% per click; per-output memory.** While idle the same wheel browses the hymn numbers, clockwise upwards — an earlier draft said "volume, always", and the first demo on the bench showed the operator reaching for the knob to browse.
 7. **Speed: pitch-preserved, 75–125% in 5% steps; resets per hymn.**
 8. **HDMI states: image on boot/idle/stop, clean fullscreen video when playing, freeze-frame on pause.**
 9. **Bluetooth: remember all paired; auto-reconnect last-used only when BT is the selected output.**

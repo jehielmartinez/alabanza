@@ -47,15 +47,19 @@ class Library:
         return self.hymns.get(number)
 
     def neighbor(self, number: int, step: int) -> int:
-        """Next/previous existing hymn number from `number` (for browsing)."""
+        """Next/previous existing hymn number from `number` (for browsing).
+
+        Wraps: past the last hymn comes the first, and before the first the
+        last. A knob has no end stop, and 517 is one click from 001 that
+        way instead of five hundred.
+        """
         nums = self.numbers
         if not nums:
             return number
         if number not in self.hymns:
             nums_after = [n for n in nums if (n > number if step > 0 else n < number)]
             return (min(nums_after) if step > 0 else max(nums_after)) if nums_after else nums[0 if step > 0 else -1]
-        i = nums.index(number) + step
-        return nums[max(0, min(i, len(nums) - 1))]
+        return nums[(nums.index(number) + step) % len(nums)]
 
     def search_t9(self, query: str) -> list[Hymn]:
         """Hymns where any title word starts with the T9 digit sequence."""

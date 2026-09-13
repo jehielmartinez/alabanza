@@ -79,7 +79,7 @@ class FakePlayer:
         return self.speed
 
     def nudge_volume(self, direction):
-        self.volume = min(100, max(0, self.volume + direction * 2))
+        self.volume = min(100, max(0, self.volume + direction))    # 1% per click, like the real one
         return self.volume
 
     def shutdown(self):

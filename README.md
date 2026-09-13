@@ -58,7 +58,7 @@ The keyboard stands in for them:
 |---|---|
 | `0`–`9`, `*`, `#` | keypad — number, back/stop, play |
 | `Space`, `←` `→`, `↑` `↓` | D-pad — centre, seek, up/down |
-| `-` `+` | encoder wheel (volume) |
+| `-` `+` | encoder wheel (volume while playing, browse while idle) |
 | `m` | encoder push (opens the menu) |
 | `r`, `q` | rescan, quit (dev only) |
 
