@@ -16,7 +16,7 @@ and physical controls. Battery powered, fully portable.
 | Path | What |
 |---|---|
 | `app/` | The player application (Python, runs on the Pi and on a dev machine) |
-| `tools/` | Library tooling: YouTube downloader + provisioning script |
+| `tools/` | Library tooling: YouTube downloader, provisioning script, Bible converter |
 | `docs/` | Specification and build plan |
 
 ## ⚠ The hymn library is NOT in this repo
@@ -65,6 +65,17 @@ The keyboard stands in for them:
 `↑`/`↓` change the speed while a hymn plays and browse the library when it
 doesn't; T9 title search lives in the menu — predictive, one press per
 letter, so `Cielo` is `2 4 3 5 6`.
+
+The menu also has **Biblia**: verses on the projector, white on black —
+pick a book (turn, or T9 on its name), a chapter and a verse; then the wheel
+follows the reading, `#` adds the next verse to the slide and `*` takes it
+off. Design in **[docs/BIBLE.md](docs/BIBLE.md)**. The text is not in the
+repo either; build it once:
+
+```sh
+cd tools
+uv run build_bible.py         # downloads the RVR1960 -> tools/bible/rvr1960/
+```
 
 ## Tests
 

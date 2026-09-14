@@ -1,7 +1,9 @@
 # Biblia — verses on the projector
 
-> **Status: FEASIBILITY SPEC, 2026-09-14.** Not built. Every number below
-> was measured on the Zero W demo board (armv6l) unless it says otherwise.
+> **Status: BUILT, 2026-09-14** (`app/alabanza/bible.py`, `tools/build_bible.py`).
+> Every number below was measured on the Zero W demo board (armv6l) unless
+> it says otherwise. What changed between the spec and the code is noted
+> in place.
 
 A second use for the same box: pick a passage from the Reina-Valera 1960,
 put it on HDMI, white serif on black, and step through it as it is read.
@@ -47,7 +49,7 @@ first, before writing any code (§ Build order).
 Source: [dscottpi/bibles](https://github.com/dscottpi/bibles), file
 `RVR1960 - Spanish.json`, 5.0 MB. Shape: `{book: {chapter: {verse: text}}}`
 plus a stray top-level `"lang": "SPAN"` key. Spot-checked: Salmos has 150
-chapters, 119 has 176 verses, "S.Juan" 3:16 reads as printed. Two things
+chapters, 119 has 176 verses, "S.Juan" 3:16 reads as printed. Three things
 to fix at conversion time, not at runtime:
 
 - **Book names are inconsistent** — `S. Mateo`, `S. Marcos`, `S. Lucas`,
@@ -55,11 +57,16 @@ to fix at conversion time, not at runtime:
   canonical order. The converter carries its own 66-row table: canonical
   order, the name to display (`Juan`, not `S.Juan`), and the short form
   for the OLED (`1 Co`, `Ap`).
-- **Verses carry trailing spaces**, and the count is 31,104 against the
-  canonical 31,102 — two verses are split or duplicated somewhere. The
-  converter strips whitespace and reports any chapter whose verse count
-  differs from the standard table, so the anomaly is found once, on the
-  laptop, instead of on a projector.
+- **Verses carry trailing spaces.** The count is 31,104 against the 31,102
+  of English Bibles, which turned out not to be a defect: the Reina-Valera
+  numbers a few passages differently (3 Juan runs to verse 15). The
+  converter strips whitespace and reports any chapter whose verse numbers
+  are not 1..n, so a real gap or duplicate is found once, on the laptop,
+  instead of on a projector. The download has none.
+- **Poetry lost its line breaks**: Salmos 23:2 arrives as `me hará
+  descansar;Junto a aguas de reposo`, and 4,893 verses are like it. A line
+  of a psalm ends in punctuation and the next starts with a capital, so
+  the converter puts a space back at exactly that pair.
 
 Alternatives, all the same text in another wrapper:
 [mrk214/bible-data-es-spa](https://github.com/mrk214/bible-data-es-spa) (11
@@ -160,19 +167,20 @@ which is what drove `tools/make_screensaver.py` too:
   on the VideoCore. 720 is the library's own height, so it costs nothing
   in sharpness anyone can see, and it is a third cheaper to draw on the
   ARM11 than 1080.
-- **DejaVu Serif Bold, white**, on the board already. Bold because thin
-  strokes are the first thing a washed-out projector loses. (A vendored
-  OFL serif with a better italic — Gentium, Crimson — can replace it later
-  with a one-line change; not needed to ship.)
+- **DejaVu Serif Bold, white**, vendored in `app/alabanza/fonts/` (Bitstream
+  Vera licence, alongside it) rather than taken from the board, so a slide
+  lays out identically on a laptop and in the tests. Bold because thin
+  strokes are the first thing a washed-out projector loses.
 - **Margins 8 %** all round, for overscan on old screens.
 - **One paragraph per verse**, the verse number as a smaller grey figure at
   the start of its first line, as a printed Bible does. Lines break at
   words, never inside them; text is left-aligned with a ragged right —
   centred wrapped prose is hard to read from a distance.
 - **Type size fits the content**: start at 64 px, step down until both the
-  width and the height budget hold, floor at 34 px. Below the floor the
+  width and the height budget hold, floor at 32 px. Below the floor the
   range does not grow (see `No cabe más`). A single verse of median length
-  lands around 56 px, three lines; a long one like Ester 8:9 around 40 px.
+  lands around 56 px, three lines; a long one like Ester 8:9 around 40 px;
+  Psalm 23 fits whole at the floor.
 - **Reference bottom-right, grey, smaller**: `Juan 3:16-18` and, a step
   smaller still, `RVR1960`. The version label is a courtesy to whoever
   is reading along in another edition.
@@ -248,20 +256,23 @@ produces a file within 2 s; `show_image` on a connected HDMI.
 Per-unit acceptance adds one line to TESTING.md: open Juan 3:16 on the
 projector and turn the wheel once.
 
-## Build order
+## What is left
 
-1. **Prove the wall first, zero code.** Plug HDMI into the Zero W, stop the
-   service, and load `/tmp/v.bmp` (a slide left there by today's
-   measurement) with mpv using the app's own options (`vo=gpu`,
-   `gpu-context=drm`). If the text appears, everything above stands. If it
-   does not, the problem is the still-image path on this board and nothing
-   about the Bible design changes.
-2. `build_bible.py` and `bible.py` with its tests — all laptop work.
-3. `Player.show_image` and the render worker.
-4. The two modes and the menu row; bench on the Pi 4 with keyboard, then
-   the Zero W.
+Everything above is built and covered by Tier 1 tests, and the worker was
+timed on the Zero W with the real text, through the same code path the app
+runs: **0.5–0.8 s per slide** — 760 ms for a lone Juan 3:16, 570 ms for
+16–18, 700 ms for five verses of Psalm 23, under 500 ms for the next turn
+of the wheel. The first version took 2.8 s for three verses: the size
+search laid the passage out seventeen times, measuring every candidate
+line. Word widths are now cached per size (Layout.BASIC has no kerning,
+so a line is the sum of its words) and the size is found by binary
+search, five layouts instead of seventeen.
 
-Roughly a weekend of work, most of it step 2.
+Not yet done, because HDMI was unplugged on the bench: **seeing a slide on
+a projector from the Zero W**. The screensavers go through the identical
+`show_image`, so if the projector showed one at the church test this is
+proven; otherwise, plug HDMI in, open Menu › Biblia, and look. Step 7 of
+TESTING.md's acceptance list is exactly that.
 
 ## Open questions
 

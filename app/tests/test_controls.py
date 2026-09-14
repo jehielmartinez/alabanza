@@ -371,7 +371,7 @@ class TestHoldingTheKnobPowersOff:
         rig.press(Kind.PUSH)
         rig.press(Kind.PUSH_RELEASE)
         assert rig.app.mode is Mode.MENU
-        for _ in range(4):
+        for _ in range(5):
             rig.press(Kind.DOWN)
         assert "Apagar" in rig.app.tick().lines[-1]
         rig.press(Kind.CONFIRM)

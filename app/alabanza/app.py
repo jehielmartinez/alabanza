@@ -13,6 +13,8 @@ from pathlib import Path
 
 from . import audio
 from . import settings as settings_mod
+from .bible import Bible, Reference, fits, search_books
+from .books import BOOKS
 from .bluetooth import (
     ERR_CONNECT,
     ERR_OFF,
@@ -40,6 +42,8 @@ class Mode(Enum):
     SEARCH = auto()
     BT_LIST = auto()
     BT_DEVICE = auto()
+    BIBLE_PICK = auto()    # choosing a passage: book, chapter, verse
+    BIBLE_SHOW = auto()    # a passage is on the projector
 
 
 SAVE_DEBOUNCE_S = 2.0
@@ -103,7 +107,8 @@ class App:
     def __init__(self, library_dir: Path, player: Player,
                  settings_path: Path | None = None,
                  bt: BluetoothBackend | None = None,
-                 clock=time.monotonic):
+                 clock=time.monotonic, bible: Bible | None = None,
+                 slides=None):
         # every deadline in here — message timeouts, the save debounce, scan
         # and reconnect timers — reads this one clock, so tests can drive
         # half-hour scenarios instantly instead of sleeping through them
@@ -141,6 +146,21 @@ class App:
         self._scan_until = 0.0
         self._reconnect = _Reconnect()
         self._paused_by_loss = False
+
+        # Verses on the projector (docs/BIBLE.md). `slides` draws them off
+        # the loop thread and hands them to the player; None on a machine
+        # with no text, where the menu row just says so.
+        self.bible = bible or Bible()
+        self.slides = slides
+        self.pick_field = 0        # 0 book, 1 chapter, 2 verse
+        self.pick_query = ""       # T9 digits narrowing the book list
+        self.pick_cursor = 0       # row in that list
+        self.pick_entry = ""       # digits typed for a chapter or verse
+        self.pick_book = 0
+        self.pick_chapter = 1
+        self.pick_verse = 1
+        self.bible_ref: Reference | None = None   # what is on the wall
+        self.bible_entry = ""      # digits typed on the slide screen: a jump
         self._apply_output()
         # decision 9: chase the last speaker at boot only when BT is the output
         if self.settings.output == "bluetooth" and self.settings.last_bt_device:
@@ -257,6 +277,12 @@ class App:
         elif self.mode is Mode.BT_DEVICE:
             if not self._handle_transport(event):
                 self._handle_bt_device(event)
+        elif self.mode is Mode.BIBLE_PICK:
+            # no transport here on purpose: nothing plays while a passage
+            # is being chosen, and ◀ ▶ mean chapters on the slide screen
+            self._handle_bible_pick(event)
+        elif self.mode is Mode.BIBLE_SHOW:
+            self._handle_bible_show(event)
         else:
             self._handle_select(event)
 
@@ -383,6 +409,7 @@ class App:
             f"Salida: {OUTPUT_LABELS[self.settings.output]}",
             "Bluetooth",
             "Buscar por titulo",
+            "Biblia",
             "Reescanear biblioteca",
             "Apagar",
         ]
@@ -411,13 +438,203 @@ class App:
                 self.search_query = ""
                 self.search_pos = 0
                 self.entry = ""
-            elif self.menu_pos == 3:    # rescan
+            elif self.menu_pos == 3:    # verses on the projector
+                self._open_bible()
+            elif self.menu_pos == 4:    # rescan
                 self.handle(Event(Kind.RESCAN))
                 self.mode = Mode.SELECT
             else:                       # apagar
                 self._save_if_due(force=True)
                 self.shutdown_requested = True
                 self.quit_requested = True
+
+    # -- bible ---------------------------------------------------------
+    #
+    # docs/BIBLE.md. Two screens: pick a passage, then step through it.
+    # The projector shows one thing at a time, so this is only reachable
+    # while no hymn plays; the slide replaces the screensaver and the
+    # screensaver comes back when the slide screen is left.
+
+    def _open_bible(self) -> None:
+        if not self.bible.available:
+            self.flash("Sin Biblia en la tarjeta", 4)
+            return
+        if self.player.active:
+            self.flash("Detén el himno", 3)     # its video owns the projector
+            return
+        last = self.settings.bible_last or [0, 1, 1]
+        ref = self.bible.clamp(Reference(last[0], last[1], last[2], last[2]))
+        self._pick_from(ref)
+        self.mode = Mode.BIBLE_PICK
+
+    def _pick_from(self, ref: Reference) -> None:
+        """Open the pick screen prefilled, so the next reading is one edit
+        away from the last."""
+        self.pick_book, self.pick_chapter, self.pick_verse = ref.book, ref.chapter, ref.first
+        self.pick_field = 0
+        self.pick_query = ""
+        self.pick_cursor = ref.book
+        self.pick_entry = ""
+
+    def _pick_books(self) -> list[int]:
+        return search_books(self.pick_query)
+
+    def _take_entry(self, current: int, maximum: int) -> int:
+        """The number typed for a chapter or verse, or the one already
+        there. Out of range is clamped and said, not silently accepted."""
+        if not self.pick_entry:
+            return current
+        typed = int(self.pick_entry)
+        self.pick_entry = ""
+        if 1 <= typed <= maximum:
+            return typed
+        self.flash(f"Máximo {maximum}")
+        return min(max(1, typed), maximum)
+
+    def _show_passage(self, ref: Reference) -> None:
+        self.bible_ref = ref
+        self.bible_entry = ""
+        if self.slides is not None:
+            self.slides.show(ref)
+        self.settings.bible_last = [ref.book, ref.chapter, ref.first]
+        self._touch()
+
+    def _handle_bible_pick(self, event: Event) -> None:
+        k = event.kind
+        step = _step(k)
+        if k is Kind.STAR:
+            if self.pick_field == 0:
+                if self.pick_query:
+                    self.pick_query = self.pick_query[:-1]
+                    self.pick_cursor = 0 if self.pick_query else self.pick_book
+                else:
+                    self.mode = Mode.MENU
+            elif self.pick_entry:
+                self.pick_entry = self.pick_entry[:-1]
+            else:
+                self.pick_field -= 1
+        elif k is Kind.DIGIT:
+            if self.pick_field == 0:
+                self.pick_query += str(event.value)
+                self.pick_cursor = 0
+            elif len(self.pick_entry) < 3:
+                self.pick_entry += str(event.value)
+        elif step:
+            if self.pick_field == 0:
+                books = self._pick_books()
+                if books:
+                    self.pick_cursor = (self.pick_cursor + step) % len(books)
+            elif self.pick_field == 1:
+                self.pick_entry = ""
+                count = self.bible.chapters(self.pick_book)
+                self.pick_chapter = (self.pick_chapter - 1 + step) % count + 1
+            else:
+                self.pick_entry = ""
+                count = max(1, self.bible.verses(self.pick_book, self.pick_chapter))
+                self.pick_verse = (self.pick_verse - 1 + step) % count + 1
+        elif k in (Kind.CONFIRM, Kind.PUSH):
+            if self.pick_field == 0:
+                books = self._pick_books()
+                if not books:
+                    self.flash("Sin resultados")
+                    return
+                book = books[min(self.pick_cursor, len(books) - 1)]
+                if book != self.pick_book:
+                    self.pick_chapter = self.pick_verse = 1
+                self.pick_book = book
+                self.pick_query = ""
+                self.pick_field = 1
+            elif self.pick_field == 1:
+                self.pick_chapter = self._take_entry(
+                    self.pick_chapter, self.bible.chapters(self.pick_book))
+                self.pick_verse = min(self.pick_verse, max(
+                    1, self.bible.verses(self.pick_book, self.pick_chapter)))
+                self.pick_field = 2
+            else:
+                self.pick_verse = self._take_entry(
+                    self.pick_verse, self.bible.verses(self.pick_book, self.pick_chapter))
+                self._show_passage(self.bible.clamp(Reference(
+                    self.pick_book, self.pick_chapter, self.pick_verse, self.pick_verse)))
+                self.mode = Mode.BIBLE_SHOW
+
+    def _handle_bible_show(self, event: Event) -> None:
+        k = event.kind
+        step = _step(k)
+        ref = self.bible_ref
+        if k is Kind.STAR:
+            if self.bible_entry:
+                self.bible_entry = self.bible_entry[:-1]
+            elif ref.last > ref.first:
+                self._show_passage(self.bible.shrink(ref))
+            else:
+                self._pick_from(ref)
+                self.mode = Mode.BIBLE_PICK
+                self.player.show_idle()     # never leave a stale verse up
+        elif k is Kind.DIGIT:
+            if len(self.bible_entry) < 3:
+                self.bible_entry += str(event.value)
+        elif step:
+            self._show_passage(self.bible.step(ref, step))
+        elif k in (Kind.CONFIRM, Kind.PUSH):
+            if self.bible_entry:
+                # digits pending: # jumps to that verse, as it plays what
+                # was typed on the home screen
+                typed = int(self.bible_entry)
+                target = self.bible.jump(ref, typed)
+                if target.first != typed:
+                    self.flash(f"Máximo {self.bible.verses(ref.book, ref.chapter)}")
+                self._show_passage(target)
+            else:
+                more = self.bible.extend(ref)
+                if more == ref:
+                    self.flash("Fin del capítulo")
+                elif not fits(self.bible, more):
+                    self.flash("No cabe más")
+                else:
+                    self._show_passage(more)
+        elif k is Kind.SEEK_FWD:
+            self._show_passage(self.bible.chapter_step(ref, +1))
+        elif k is Kind.SEEK_BACK:
+            self._show_passage(self.bible.chapter_step(ref, -1))
+
+    def _view_bible_pick(self) -> ViewModel:
+        name = BOOKS[self.pick_book][0]
+        hint = self.message or "gira y pulsa"
+        if self.pick_field == 0:
+            books = self._pick_books()
+            if books:
+                cursor = min(self.pick_cursor, len(books) - 1)
+                start = _window(len(books), cursor, 2)
+                rows = [("> " if i == cursor else "  ") + BOOKS[b][0]
+                        for i, b in enumerate(books[start: start + 2], start)]
+            else:
+                rows = ["  (sin resultados)"]
+            lines = [f"Libro: {self.pick_query}_"] + rows
+            if not self.pick_query:
+                hint = self.message or "gira, o 1 toque/letra"
+        elif self.pick_field == 1:
+            value = f"{self.pick_entry}_" if self.pick_entry else str(self.pick_chapter)
+            lines = [f"  {name}", f"> Capítulo {value}",
+                     f"  de {self.bible.chapters(self.pick_book)}"]
+        else:
+            value = f"{self.pick_entry}_" if self.pick_entry else str(self.pick_verse)
+            lines = [f"  {name} {self.pick_chapter}", f"> Versículo {value}",
+                     f"  de {self.bible.verses(self.pick_book, self.pick_chapter)}"]
+        return ViewModel(state="alt", status_left="BIBLIA", lines=lines, hint=hint)
+
+    def _view_bible_show(self) -> ViewModel:
+        ref = self.bible_ref
+        # the title row is 16 characters of the bold font; past that the
+        # abbreviation, rather than a marquee the Zero W has to pay for
+        label = ref.label if len(ref.label) <= 16 else ref.short_label
+        count = self.bible.verses(ref.book, ref.chapter)
+        return ViewModel(
+            state="alt", status_left="BIBLIA",
+            status_right=f"{self.bible_entry}_" if self.bible_entry else f"{count} vers.",
+            title=label,
+            subtitle=self.bible.text(ref.book, ref.chapter, ref.first),
+            hint=self.message or "# añade · * quita",
+        )
 
     # -- bluetooth -----------------------------------------------------
     def _bt_name(self, mac: str) -> str:
@@ -663,6 +880,10 @@ class App:
             return self._view_bt_busy() or self._view_bt_list()
         if self.mode is Mode.BT_DEVICE:
             return self._view_bt_busy() or self._view_bt_device()
+        if self.mode is Mode.BIBLE_PICK:
+            return self._view_bible_pick()
+        if self.mode is Mode.BIBLE_SHOW:
+            return self._view_bible_show()
         return self._view_select()
 
     def _view_search(self) -> ViewModel:

@@ -5,6 +5,10 @@ tools/library/
 tools/library-480/
 *.mp4
 
+# the RVR1960 text — copyright Sociedades Bíblicas Unidas, not ours to
+# publish; tools/build_bible.py downloads and lays it out (docs/BIBLE.md)
+tools/bible/
+
 # python
 .venv/
 __pycache__/

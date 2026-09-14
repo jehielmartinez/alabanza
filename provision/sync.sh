@@ -43,6 +43,8 @@ EXCLUDES=(
 # WiFi, where losing 2 GB at 95% and starting again is a real outcome.
 # Every library folder is excluded unless asked for, and only the one asked
 # for goes: the Zero W wants the 480p copy and has no room or time for both.
+# The Bible text (tools/bible/, 5 MB) always goes: it is small, and a box
+# without it has a menu row that only says so.
 FLAGS=(-az --delete)
 EXCLUDES+=(--exclude 'tools/downloads/')
 case "${2:-}" in

@@ -186,7 +186,7 @@ class Player:
         self._idle_images = _idle_images() if idle_images is None else idle_images
         self._idle_shown: Path | None = None
         self._idle_queue: list[Path] = []
-        self._showing_idle = False
+        self._showing_still = False
         self._starting_until = 0.0
         self._af = ""                   # the speed filter chain mpv was last given
         options = {
@@ -233,7 +233,7 @@ class Player:
 
     # -- lifecycle -----------------------------------------------------
     def play(self, path: Path) -> None:
-        self._showing_idle = False
+        self._showing_still = False
         self._starting_until = time.monotonic() + START_GRACE
         self._set_speed(1.0)  # spec: speed resets per hymn
         self._mpv.play(str(path))
@@ -265,11 +265,24 @@ class Player:
             if len(self._idle_queue) > 1 and self._idle_queue[0] == self._idle_shown:
                 self._idle_queue.append(self._idle_queue.pop(0))
         chosen = self._idle_queue.pop(0)
-        self._starting_until = 0.0
-        self._mpv.play(str(chosen))
-        self._mpv.pause = False
         self._idle_shown = chosen
-        self._showing_idle = True
+        self.show_image(chosen)
+
+    def show_image(self, path: Path) -> None:
+        """Put a still on HDMI: a screensaver, or a verse slide from bible.py.
+
+        Same instance the hymns use, same load, so swapping stills never
+        blanks the screen. A still is not a hymn -- `active` stays false,
+        which is what lets the state machine tell "a picture is up" from
+        "something is playing". Called from the slide worker's thread as
+        well as the loop's; libmpv commands are safe to issue from any.
+        """
+        if not self._video:
+            return                      # audio-only: there is nothing to show
+        self._starting_until = 0.0
+        self._showing_still = True
+        self._mpv.play(str(path))
+        self._mpv.pause = False
 
     def toggle_pause(self) -> None:
         if self.active:
@@ -306,7 +319,7 @@ class Player:
         that had only just begun. The operator saw a keypress do nothing and
         pressed again.
         """
-        if self._showing_idle:
+        if self._showing_still:
             return False
         if self._mpv.filename is not None:
             self._starting_until = 0.0
