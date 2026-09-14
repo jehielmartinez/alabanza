@@ -652,7 +652,7 @@ class App:
         self._save_if_due()
         if self.now_playing and not self.player.active:
             self.now_playing = None       # hymn finished on its own
-            self.browse = 0               # ...panel back to "teclea un numero"
+            self.browse = 0               # ...panel back to "selecciona un número"
             self.player.show_idle()       # ...and HDMI back to the image
 
         if self.mode is Mode.SEARCH:
@@ -796,7 +796,6 @@ class App:
             vm.meta_right = entry_label
         else:
             vm.state = "idle"
-            vm.status_left = "● Listo"
             if self.entry:
                 vm.title = entry_label
                 vm.subtitle = entry_match.title if entry_match else "?"
@@ -806,7 +805,7 @@ class App:
                 vm.subtitle = hymn.title if hymn else ""
             else:
                 vm.title = "Himno: ---"
-                vm.subtitle = ("teclea un numero" if self.library.hymns
+                vm.subtitle = ("selecciona un número" if self.library.hymns
                                else "biblioteca vacia")
 
         vm.hint = self.message

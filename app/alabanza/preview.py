@@ -17,11 +17,11 @@ BLUE = (80, 170, 255)  # the panel is blue-on-black
 
 SCREENS = {
     "idle": ViewModel(
-        state="idle", status_left="● Listo", status_right="Jack V80", output="jack", volume=80,
-        title="Himno: ---", subtitle="teclea un numero",
+        state="idle", status_right="Jack V80", output="jack", volume=80,
+        title="Himno: ---", subtitle="selecciona un número",
     ),
     "entry": ViewModel(
-        state="idle", status_left="● Listo", status_right="Jack V80", output="jack", volume=80,
+        state="idle", status_right="Jack V80", output="jack", volume=80,
         title="Himno: 279_", subtitle="¡Santo! ¡Santo! ¡Santo!",
     ),
     # paused is identical to playing except the status line — that's the
@@ -96,9 +96,9 @@ SCREENS = {
         hint="BT perdido - pausado",
     ),
     "bt_connecting": ViewModel(
-        state="idle", status_left="● Listo", output="bluetooth",
+        state="idle", output="bluetooth",
         output_state="connecting", volume=60,
-        title="Himno: ---", subtitle="teclea un numero",
+        title="Himno: ---", subtitle="selecciona un número",
     ),
 }
 
