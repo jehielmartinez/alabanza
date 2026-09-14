@@ -76,7 +76,7 @@ way an operator queues the next hymn anyway.
 ## Playback
 
 - **Engine**: mpv (libmpv). One engine for video, audio-only, seek, pause, speed.
-- **Speed**: pitch-preserved time-stretch (`scaletempo2`), **75%–125% in 5% steps**, on the D-pad's ▲▼ while a hymn plays. Key never changes — safe for singalong. Shown on OLED. **Resets to 100% on each new hymn.**
+- **Speed**: pitch-preserved time-stretch (`scaletempo2`; `scaletempo` on the original Zero W, whose one core cannot afford the other), **75%–125% in 5% steps**, on the D-pad's ▲▼ while a hymn plays. Key never changes — safe for singalong. Shown on OLED. **Resets to 100% on each new hymn.**
 - **Seek**: D-pad ◀/▶ step through the track (default step: 10 s; held = repeat).
 - **Volume**: the encoder wheel while a hymn plays, 1% per click; while idle the wheel browses the hymn numbers instead. **Persisted per output** (Jack / BT / HDMI each remember their own level) so switching outputs never produces a surprise.
 

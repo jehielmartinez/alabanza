@@ -2,7 +2,8 @@
 
 mpv gives us everything the spec asks for: video+audio or audio-only,
 seeking, pause, and pitch-preserved speed (audio-pitch-correction is on by
-default, using scaletempo2).
+default, using scaletempo2 -- except on the original Zero W, see
+_speed_filter).
 """
 
 import ctypes.util
@@ -136,6 +137,30 @@ def _machine() -> str:
     return platform.machine()
 
 
+# The stretcher the ARM11 can afford. mpv preserves pitch across a speed
+# change by running the audio through scaletempo2, a floating-point WSOLA
+# stretcher, and on the Zero W that is 21-31% of the only core -- on top of
+# the ~63% a hymn streaming to Bluetooth already costs. Every speed change
+# in the first church test ran the core out and the audio broke up. The
+# older scaletempo filter does the same job for a third of the price
+# (measured through PipeWire at 115%: +21 points vs +10), so that board uses
+# it instead. It is not free when idle, though: left in the chain at 100% it
+# still costs 9 points, so it is put in only while the speed is off 100%
+# and taken out again when it returns. A user filter in the chain takes
+# over speed handling from the built-in one. search=10 (ms; default 14)
+# trims the overlap search, which is where the time goes, while still
+# covering waveforms down to 100 Hz. Other boards keep scaletempo2, which
+# sounds a little smoother and costs them nothing they notice.
+_ARMV6_SPEED_FILTER = "scaletempo=search=10"
+
+
+def _speed_filter(speed: float, machine: str | None = None) -> str:
+    """The `af` chain that goes with this speed: "" means mpv's default."""
+    if (machine or _machine()) == "armv6l" and speed != 1.0:
+        return _ARMV6_SPEED_FILTER
+    return ""
+
+
 def _video_override() -> dict | None:
     """Bench override: ALABANZA_VIDEO="vo=gpu,gpu-context=drm,hwdec=drm-prime".
 
@@ -163,6 +188,7 @@ class Player:
         self._idle_queue: list[Path] = []
         self._showing_idle = False
         self._starting_until = 0.0
+        self._af = ""                   # the speed filter chain mpv was last given
         options = {
             "vid": "auto" if video else "no",
             "osc": False,
@@ -209,7 +235,7 @@ class Player:
     def play(self, path: Path) -> None:
         self._showing_idle = False
         self._starting_until = time.monotonic() + START_GRACE
-        self._mpv.speed = 1.0  # spec: speed resets per hymn
+        self._set_speed(1.0)  # spec: speed resets per hymn
         self._mpv.play(str(path))
         self._mpv.pause = False
 
@@ -309,8 +335,26 @@ class Player:
 
     def nudge_speed(self, direction: int) -> float:
         new = round(min(SPEED_MAX, max(SPEED_MIN, self.speed + direction * SPEED_STEP)), 2)
-        self._mpv.speed = new
+        self._set_speed(new)
         return new
+
+    def _set_speed(self, speed: float) -> None:
+        """Set the speed, with the filter that board can afford in place.
+
+        The filter goes in before the speed leaves 100%, so the stretch is
+        never done by the built-in one even for a moment, and comes out
+        after the speed is back at 100%. The chain is only touched when it
+        actually changes: mpv rebuilds it on every assignment, and a
+        rebuild is an audible tick.
+        """
+        chain = _speed_filter(speed)
+        if chain and chain != self._af:
+            self._af = chain
+            self._mpv.af = chain
+        self._mpv.speed = speed
+        if not chain and self._af:
+            self._af = ""
+            self._mpv.af = ""
 
     @property
     def speed(self) -> float:

@@ -258,6 +258,28 @@ headless session for the same seat reason WirePlumber's monitor did; the
 audio threads had been running at ordinary priority, taking turns with the
 app's Python threads.
 
+**Speed changes** were the next thing to break, at the first church test:
+nudging the speed made the hymn skip, and once the box reset. mpv keeps
+the pitch across a speed change with `scaletempo2`, a floating-point
+time-stretcher, and on this core that is far too much on top of a stream
+that already costs ~63%. Measured playing a hymn to PipeWire, player
+process only:
+
+| Stretcher at 115% | CPU | Over the 100% baseline of 11% |
+|---|---|---|
+| `scaletempo2` (mpv's default, other boards) | 33% | +21 (+31 at 125%) |
+| `scaletempo2` with a smaller search window | 36–38% | no better |
+| `scaletempo` | 25% | +12 |
+| `scaletempo=search=10` | 22% | +10 |
+| `scaletempo=search=10` parked in the chain at 100% | 20% | +9 for nothing |
+
+So on armv6l `player.py` puts `scaletempo=search=10` into the chain while
+the speed is off 100% and takes it out again after. The journal of the
+church boots shows two that ended without a shutdown sequence, i.e. a
+power cut or a hardware reset, and nothing logged before them; with the
+core no longer saturated the reset should not recur, but if it does, check
+the supply first — `vcgencmd get_throttled` right after the next one.
+
 ### Idle CPU
 
 The app is the other half of every boot number above: whatever it burns at
