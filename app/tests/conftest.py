@@ -10,6 +10,8 @@ import sys
 import pytest
 
 from alabanza.app import App
+from alabanza.bible import Bible
+from alabanza.books import BOOKS
 from alabanza.bt_fake import FakeBackend
 from alabanza.events import Event, Kind
 from alabanza.library import Hymn, Library
@@ -44,6 +46,7 @@ class FakePlayer:
         self.played: list = []
         self.seeks: list[float] = []
         self.showing_idle = False
+        self.images: list = []       # stills put on HDMI (verse slides)
 
     def play(self, path):
         self.played.append(path)
@@ -54,6 +57,10 @@ class FakePlayer:
 
     def show_idle(self):
         self.showing_idle = True
+
+    def show_image(self, path):
+        self.images.append(path)
+        self.showing_idle = False
 
     def toggle_pause(self):
         if self.active:
@@ -84,6 +91,27 @@ class FakePlayer:
 
     def shutdown(self):
         pass
+
+
+class FakeSlides:
+    """The slide worker's contract: show(ref), and nothing else."""
+
+    def __init__(self):
+        self.shown: list = []
+
+    def show(self, ref):
+        self.shown.append(ref)
+
+
+def make_bible(verses_per_chapter: int = 5) -> Bible:
+    """Every book and chapter of the canon, with placeholder verses, so
+    navigation can be exercised across every boundary without the text."""
+    data = {
+        i: [[f"{name} {c}:{v} palabra " * 4 for v in range(1, verses_per_chapter + 1)]
+            for c in range(1, chapters + 1)]
+        for i, (name, _, chapters) in enumerate(BOOKS)
+    }
+    return Bible(data=data)
 
 
 def make_library(numbers=((5, "Al Cielo Voy"), (14, "Bienvenida da Jesús"),
@@ -161,16 +189,20 @@ def player():
 def harness(clock, player, tmp_path):
     """The default rig: three hymns, a jack output, a fake Bluetooth adapter."""
 
-    def build(*, settings=None, paired=(), bt=None, library=None):
+    def build(*, settings=None, paired=(), bt=None, library=None, bible=None):
         backend = bt if bt is not None else FakeBackend(paired=paired, clock=clock)
         # settings go through a real file, so construction exercises the actual
         # boot path — including the auto-reconnect that only fires when the
         # saved output is Bluetooth
         path = tmp_path / "settings.json"
         save(settings or Settings(), path)
-        app = App(tmp_path / "library", player, path, backend, clock=clock)
+        slides = FakeSlides()
+        app = App(tmp_path / "library", player, path, backend, clock=clock,
+                  bible=bible, slides=slides)
         app.library = library if library is not None else make_library()
-        return Harness(app, player, backend, clock)
+        rig = Harness(app, player, backend, clock)
+        rig.slides = slides
+        return rig
 
     return build
 

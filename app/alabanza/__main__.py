@@ -57,6 +57,7 @@ def is_headless(explicit: bool, stdout_isatty: bool) -> bool:
 _TOOLS = Path(__file__).resolve().parents[2] / "tools"
 # provisioned library first; raw downloads as dev fallback
 DEFAULT_LIBRARY = _TOOLS / "library" if (_TOOLS / "library" / "manifest.json").exists() else _TOOLS / "downloads"
+DEFAULT_BIBLE = _TOOLS / "bible" / "rvr1960"      # tools/build_bible.py writes it
 TICK_MS = 50
 
 
@@ -178,7 +179,7 @@ def _bluetooth_backend(choice: str):
 
 def run(screen: "curses.window | None", library_dir: Path, video: bool,
         settings_path: Path, oled: bool, bt_choice: str, gpio: bool,
-        oled_device: bool) -> bool:
+        oled_device: bool, bible_dir: Path = DEFAULT_BIBLE) -> bool:
     """Returns True if the operator asked for the device to power off.
 
     `screen` is None when there is no terminal to draw on — the appliance as
@@ -209,8 +210,11 @@ def run(screen: "curses.window | None", library_dir: Path, video: bool,
     player = Player(video=video)
     log.info("player ready after %.1fs", time.monotonic() - started)
     bt = _bluetooth_backend(bt_choice)
+    from .bible import Bible, Slides
+    bible = Bible(bible_dir)
+    slides = Slides(player, bible)
     from .app import App
-    app = App(library_dir, player, settings_path, bt)
+    app = App(library_dir, player, settings_path, bt, bible=bible, slides=slides)
     log.info("ready after %.1fs (%d hymns)", time.monotonic() - started,
              len(app.library.hymns))
     _mark_ready()
@@ -248,6 +252,7 @@ def run(screen: "curses.window | None", library_dir: Path, video: bool,
             if hasattr(display, "close"):
                 display.close()
         bt.close()
+        slides.close()
         player.shutdown()
 
 
@@ -256,6 +261,8 @@ def main() -> int:
     parser.add_argument("--library", type=Path, default=DEFAULT_LIBRARY)
     parser.add_argument("--no-video", action="store_true",
                         help="audio only; don't open a video window")
+    parser.add_argument("--bible", type=Path, default=DEFAULT_BIBLE,
+                        help="the RVR1960 text as tools/build_bible.py lays it out")
     parser.add_argument("--settings", type=Path,
                         default=Path.home() / ".alabanza" / "settings.json",
                         help="settings file (device: on the writable partition)")
@@ -291,11 +298,11 @@ def main() -> int:
         if headless:
             shutdown = run(None, args.library, not args.no_video,
                            args.settings, args.oled, args.bt, args.gpio,
-                           args.oled_device)
+                           args.oled_device, args.bible)
         else:
             shutdown = curses.wrapper(run, args.library, not args.no_video,
                                       args.settings, args.oled, args.bt,
-                                      args.gpio, args.oled_device)
+                                      args.gpio, args.oled_device, args.bible)
     except KeyboardInterrupt:
         return 0                    # Ctrl+C, or systemd stopping the unit
     # After curses has restored the terminal, so a failure is readable.

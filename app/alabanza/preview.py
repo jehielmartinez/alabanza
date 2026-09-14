@@ -95,6 +95,25 @@ SCREENS = {
         progress=0.62, time_pos="02:24", time_dur="03:51",
         hint="BT perdido - pausado",
     ),
+    # the Bible: pick a book (T9 narrowing the list), then a chapter and a
+    # verse on the same screen; then the passage, with its first words so
+    # the operator can check it without looking at the wall
+    "bible_book": ViewModel(
+        state="alt", status_left="BIBLIA",
+        lines=["Libro: 58_", "> Juan", "  1 Juan"],
+        hint="gira y pulsa",
+    ),
+    "bible_chapter": ViewModel(
+        state="alt", status_left="BIBLIA",
+        lines=["  Juan", "> Capítulo 3", "  de 21"],
+        hint="gira y pulsa",
+    ),
+    "bible_show": ViewModel(
+        state="alt", status_left="BIBLIA", status_right="36 vers.",
+        title="Juan 3:16-18",
+        subtitle="Porque de tal manera amó Dios al mundo, que ha dado",
+        hint="# añade · * quita",
+    ),
     "bt_connecting": ViewModel(
         state="idle", output="bluetooth",
         output_state="connecting", volume=60,

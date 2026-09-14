@@ -178,7 +178,8 @@ enough to actually get done ten times:
 4. The OLED shows a sane battery percentage, and it falls under load *(product stage only — no gauge on prototype units)*
 5. Power yanked mid-hymn, then boots clean
 6. Pair the church's own speaker; reboot; it reconnects by itself
-7. The laminated card matches what the device actually does
+7. Menu › Biblia, `Juan 3:16` on the projector, one turn of the wheel shows 17
+8. The laminated card matches what the device actually does
 
 ## Tier 5 — the volunteer test
 

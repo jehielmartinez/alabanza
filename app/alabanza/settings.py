@@ -24,6 +24,9 @@ class Settings:
     # MAC -> friendly name, so the OLED can show real names before the adapter
     # answers. BlueZ stays the source of truth for what is actually paired.
     bt_names: dict[str, str] = field(default_factory=dict)
+    # [book index, chapter, verse] of the last passage put on the projector,
+    # so the Bible screen opens where the reader left off.
+    bible_last: list[int] = field(default_factory=list)
 
     @property
     def volume(self) -> int:
@@ -53,6 +56,10 @@ def load(path: Path) -> Settings:
     s.last_bt_device = str(data.get("last_bt_device", ""))
     for mac, name in (data.get("bt_names") or {}).items():
         s.bt_names[str(mac)] = str(name)
+    last = data.get("bible_last")
+    if (isinstance(last, list) and len(last) == 3
+            and all(isinstance(n, int) and n >= 0 for n in last)):
+        s.bible_last = list(last)
     return s
 
 
