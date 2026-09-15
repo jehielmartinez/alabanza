@@ -8,7 +8,7 @@ on the wall, * takes one off.
 import pytest
 
 from alabanza.app import HOLD_STALE, PICKER_HOLD, Mode
-from alabanza.bible import Reference
+from alabanza.bible import Bible, Reference
 from alabanza.books import BOOKS
 from alabanza.events import Kind
 
@@ -127,6 +127,26 @@ class TestPickingAPassage:
         rig.press((Kind.DIGIT, 9), (Kind.DIGIT, 9), Kind.PUSH)
         assert "Máximo 50" in rig.message
         assert rig.app.pick_chapter == 50
+
+    def test_a_zero_is_told_about_the_other_end(self, rig):
+        """`0` is a real key: answering it with "Máximo 50" names the bound
+        it did not miss, and reads as the app not understanding the press."""
+        open_bible(rig)
+        rig.press(Kind.PUSH)
+        rig.press((Kind.DIGIT, 0), Kind.PUSH)
+        assert "Mínimo 1" in rig.message
+        assert rig.app.pick_chapter == 1
+
+    def test_a_chapter_with_no_text_says_that_instead(self, harness):
+        """A book file that did not load has no verses, so neither bound is
+        the answer -- and "Máximo 0" is not a sentence."""
+        empty = Bible(data={JUAN: [[]]})
+        rig = harness(bible=empty)
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 5), (Kind.DIGIT, 8), (Kind.DIGIT, 2), (Kind.DIGIT, 6), Kind.PUSH)
+        rig.press((Kind.DIGIT, 1), Kind.PUSH)          # chapter 1
+        rig.press((Kind.DIGIT, 4), Kind.PUSH)          # ...which has no verses
+        assert "Sin texto" in rig.message
 
     def test_star_erases_a_digit_then_backs_a_field(self, rig):
         open_bible(rig)
@@ -347,6 +367,12 @@ class TestOnTheWall:
         rig.press((Kind.DIGIT, 9), Kind.CONFIRM)
         assert rig.app.bible_ref == Reference(JUAN, 3, 6, 6)
         assert "Máximo 6" in rig.message
+
+    def test_a_jump_to_zero_is_told_about_the_other_end(self, showing):
+        rig = showing
+        rig.press((Kind.DIGIT, 0), Kind.CONFIRM)
+        assert rig.app.bible_ref == Reference(JUAN, 3, 1, 1)
+        assert "Mínimo 1" in rig.message
 
     def test_left_and_right_change_chapter(self, showing):
         rig = showing

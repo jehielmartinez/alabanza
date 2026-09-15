@@ -404,7 +404,6 @@ class Slides:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self.last_error: Exception | None = None
-        self.shown: list[Path] = []
         self._thread = None
         if threaded:
             self._thread = threading.Thread(target=self._run, daemon=True,
@@ -448,7 +447,6 @@ class Slides:
             self._which ^= 1
             final = self._dir / f"verse-{self._which}.bmp"
             os.replace(tmp, final)
-            self.shown.append(final)
             self.drawn = (ref, shown)
             self._player.show_image(final)
 
