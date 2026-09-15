@@ -55,6 +55,13 @@ KEYPAD = (
     (Event(Kind.STAR),     Event(Kind.DIGIT, 0), Event(Kind.CONFIRM)),
 )
 
+# The one keypad key with something to say while it is held: * on the slide
+# screen goes back to the picker. Same contract as the encoder push -- a
+# keepalive every HELD_REPEAT, the app times the hold and gives up when they
+# stop -- so a release this scan never sees is still safe.
+KEYPAD_HELD = {(3, 0): Kind.STAR_HELD}
+HELD_REPEAT = 0.25
+
 # The panel can only fit "the keypad stopped"; *why* it stopped goes here, so
 # a unit in the field leaves a trace in the journal rather than a mystery.
 log = logging.getLogger(__name__)
@@ -105,6 +112,7 @@ class _Matrix:
         self._cols = [DigitalInputDevice(pin, pull_up=True) for pin in cols]
         self._down: set[tuple[int, int]] = set()
         self._changed: dict[tuple[int, int], float] = {}
+        self._held_due: dict[tuple[int, int], float] = {}
         # The scan talks to lgpio directly when it can. Through gpiozero a
         # row costs a dozen Python-level calls -- function, state, pull, and
         # a mode query behind every column read -- which profiled as the
@@ -197,6 +205,14 @@ class _Matrix:
             self._changed[key] = now
             if key in down:                            # a press, not a release
                 events.append(KEYPAD[key[0]][key[1]])
+        for key, kind in KEYPAD_HELD.items():
+            if key not in down:
+                self._held_due.pop(key, None)
+            elif key not in self._down:
+                self._held_due[key] = now + HELD_REPEAT    # the press said it
+            elif now >= self._held_due[key]:
+                events.append(Event(kind))
+                self._held_due[key] = now + HELD_REPEAT
         self._down = down
         return events
 

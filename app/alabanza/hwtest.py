@@ -94,8 +94,9 @@ BY_ID = {control.id: control for control in CONTROLS}
 
 # Events that prove nothing on their own: a release only happens after a push
 # that already counted, so requiring it would just make the map harder to
-# fill without testing another solder joint.
-_IGNORED = {Kind.PUSH_RELEASE}
+# fill without testing another solder joint. A held * is the same -- the
+# press that started it already proved k*, and it is the same contact.
+_IGNORED = {Kind.PUSH_RELEASE, Kind.STAR_HELD}
 
 _FROM_KIND = {
     Kind.STAR: "k*", Kind.CONFIRM: "k#", Kind.UP: "up", Kind.DOWN: "down",

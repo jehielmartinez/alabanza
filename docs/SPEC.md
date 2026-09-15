@@ -32,7 +32,16 @@ Prototyping continues on a Pi 4 Model B (same BCM2711 generation, same hardware 
 ## Controls
 
 Nineteen inputs, and **every function reachable with one press** — no chords, no
-long-presses, nothing hidden, with exactly one exception (shutdown, below). Fewer controls is a hard goal, not a preference:
+long-presses, nothing hidden, with exactly one exception (shutdown, below).
+
+One hold is *not* an exception, because it hides nothing: `*` on the Bible
+slide screen (BIBLE.md) does in one hold exactly what it does in several
+presses — go back — and every state it passes through is one the operator
+could have pressed their way to. A hold that only shortens a road already
+on the map is an accelerator, not a second function. A hold that does
+something you could not otherwise reach is what this rule forbids.
+
+Fewer controls is a hard goal, not a preference:
 each one is a panel cutout ×10 units and a line on the laminated card.
 
 | Control | Home screen | List screens (menu, Bluetooth, search) |

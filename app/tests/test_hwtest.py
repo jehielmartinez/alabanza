@@ -33,7 +33,7 @@ EVERY_CONTROL = (
 # Emitted only by the keyboard backend; there is no key on the panel for them.
 _DEV_ONLY = {Kind.RESCAN, Kind.QUIT}
 # Proves nothing a push has not already proved.
-_IGNORED = {Kind.PUSH_RELEASE}
+_IGNORED = {Kind.PUSH_RELEASE, Kind.STAR_HELD}
 
 
 def swept(events) -> State:
@@ -58,6 +58,11 @@ class TestEveryControlIsAccountedFor:
 
     def test_a_release_is_not_coverage(self):
         assert control_for(Event(Kind.PUSH_RELEASE)) is None
+
+    def test_a_held_star_is_not_coverage_either(self):
+        """It is the same contact as the press that started it, which the
+        map already counted."""
+        assert control_for(Event(Kind.STAR_HELD)) is None
 
     def test_the_full_sweep_completes_the_map(self):
         state = swept(EVERY_CONTROL)
