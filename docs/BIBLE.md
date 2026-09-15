@@ -190,7 +190,12 @@ which is what drove `tools/make_screensaver.py` too:
   width and the height budget hold, floor at 32 px. Below the floor the
   range does not grow (see `No cabe más`). A single verse of median length
   lands around 56 px, three lines; a long one like Ester 8:9 around 40 px;
-  Psalm 23 fits whole at the floor.
+  Psalm 23 goes up as far as verse 5, at 34 px. The whole psalm is fourteen
+  lines and wants 682 px of a 566 px budget — it would need about 26 px
+  type, and the floor is there because 32 px is what still reads from the
+  back. Verse 6 goes on a second slide, and the panel says `No cabe más`
+  rather than dropping it quietly (measured on the Zero W with the real
+  text, 2026-09-15).
 - **Reference bottom-right, grey, smaller**: `Juan 3:16-18` and, a step
   smaller still, `RVR1960`. The version label is a courtesy to whoever
   is reading along in another edition.
