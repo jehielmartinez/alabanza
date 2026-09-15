@@ -43,10 +43,15 @@ EXCLUDES=(
 # WiFi, where losing 2 GB at 95% and starting again is a real outcome.
 # Every library folder is excluded unless asked for, and only the one asked
 # for goes: the Zero W wants the 480p copy and has no room or time for both.
-# The Bible text (tools/bible/, 5 MB) always goes: it is small, and a box
-# without it has a menu row that only says so.
 FLAGS=(-az --delete)
 EXCLUDES+=(--exclude 'tools/downloads/')
+
+# The Bible text (tools/bible/, 5 MB) is small enough to ride along on every
+# sync, so it does. But it is git-ignored like the hymns, so a fresh clone
+# does not have it -- and with --delete, syncing from such a clone would
+# erase the copy already on the device and leave the menu row saying "Sin
+# Biblia en la tarjeta". Absent here means "leave the device's alone".
+[ -d "$REPO/tools/bible" ] || EXCLUDES+=(--exclude 'tools/bible/')
 case "${2:-}" in
     --library)
         FLAGS=(-a --delete --partial)
