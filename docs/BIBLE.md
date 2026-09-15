@@ -114,7 +114,7 @@ Three fields filled in order, one screen: **Libro › Capítulo › Versículo**
 
 | Control | Libro | Capítulo / Versículo |
 |---|---|---|
-| Wheel, ▲▼ | scroll the 66 books, wrapping, canonical order | ±1, bounded by the book / chapter |
+| Wheel, ▲▼ | scroll the 66 books, wrapping, canonical order — ▲ up the list | ±1, bounded by the book / chapter — ▲ is a higher number |
 | `0`–`9` | predictive T9 on the book name, one press per letter, same as the title search (`Juan` = `5826`, `Salmos` = `72`, `Romanos` = `76`) — the list narrows, the wheel picks | type the number |
 | Push, `#` | confirm, move to the next field | confirm; on Versículo: **show** |
 | `*` | erase a typed digit; with nothing typed, back to the menu | erase a digit; with nothing typed, back a field |
@@ -136,8 +136,8 @@ as one slide. It opens as a single verse.
 
 | Control | Does |
 |---|---|
-| Wheel CW, ▼ | next: the whole range slides forward one verse (16 → 17; 16–18 → 17–19). Past the chapter's end, on to verse 1 of the next chapter |
-| Wheel CCW, ▲ | previous, same rule backwards |
+| Wheel CW, ▲ | next: the whole range slides forward one verse (16 → 17; 16–18 → 17–19). Past the chapter's end, on to verse 1 of the next chapter |
+| Wheel CCW, ▼ | previous, same rule backwards |
 | Push, `#` | **add** the next verse to the slide (16 → 16–17). If digits are typed: jump to that verse in this chapter instead, as a single verse |
 | `0`–`9` | type a verse number to jump to; `#` shows it |
 | `*` | erase a typed digit; else **remove** the last verse of the range; on a single verse, back to Screen 1 |
@@ -155,6 +155,12 @@ Holding `*` is the same word said harder: a five-verse reading took five
 presses to leave, and the hold does it in one. It adds no function — every
 state it skips is one a press would have reached — which is why it does not
 count against SPEC's "no long-presses" (see the note there).
+
+▲ raises the verse number and the wheel's clockwise does the same, matching
+the home screen, where ▲ is a higher hymn number and clockwise is a higher
+one still. The D-pad used to run backwards here, on the reasoning that ▼
+moves *down a list*; a verse is a number, not a row, and the hand does not
+switch conventions between screens.
 
 OLED: status `BIBLIA`; row 2 the reference in the title font
 (`Juan 3:16-18`); rows 3–4 the first words of the first verse, so the

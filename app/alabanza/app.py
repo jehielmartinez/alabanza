@@ -88,6 +88,23 @@ def _step(kind: Kind) -> int:
     return 0
 
 
+def _nudge(kind: Kind) -> int:
+    """Adjusting a number, which is not the same gesture as moving in a list.
+
+    The wheel does not care: clockwise is a higher number either way, which
+    is what a knob next to a number does. The D-pad does. ▲ moves *up a
+    list*, but on a number it means more -- which is already what it means
+    on the home screen, where ▲ is a higher hymn number and a faster hymn.
+    A verse number is the same kind of thing as a hymn number to the hand
+    that presses it, so ▲ raises it here too.
+    """
+    if kind in (Kind.UP, Kind.WHEEL_CW):
+        return +1
+    if kind in (Kind.DOWN, Kind.WHEEL_CCW):
+        return -1
+    return 0
+
+
 def _window(count: int, cursor: int, size: int = LIST_ROWS) -> int:
     """First visible row, so the cursor is always on screen."""
     return max(0, min(cursor - size + 1, count - size))
@@ -602,11 +619,11 @@ class App:
             elif self.pick_field == 1:
                 self.pick_entry = ""
                 count = self.bible.chapters(self.pick_book)
-                self.pick_chapter = (self.pick_chapter - 1 + step) % count + 1
+                self.pick_chapter = (self.pick_chapter - 1 + _nudge(k)) % count + 1
             else:
                 self.pick_entry = ""
                 count = max(1, self.bible.verses(self.pick_book, self.pick_chapter))
-                self.pick_verse = (self.pick_verse - 1 + step) % count + 1
+                self.pick_verse = (self.pick_verse - 1 + _nudge(k)) % count + 1
         elif k in (Kind.CONFIRM, Kind.PUSH):
             if self.pick_field == 0:
                 books = self._pick_books()
@@ -634,7 +651,7 @@ class App:
 
     def _handle_bible_show(self, event: Event) -> None:
         k = event.kind
-        step = _step(k)
+        step = _nudge(k)        # a verse number, not a list: ▲ is a later verse
         ref = self.bible_ref
         if k is Kind.STAR:
             if self.bible_entry:

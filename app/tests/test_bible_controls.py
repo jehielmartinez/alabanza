@@ -143,6 +143,36 @@ class TestPickingAPassage:
         assert (rig.app.pick_chapter, rig.app.pick_verse) == (1, 1)
 
 
+class TestTheNumberFields:
+    """Capítulo and Versículo are numbers, so ▲ raises them — the book list
+    above them is a list, so ▲ moves up it."""
+
+    def test_up_raises_the_chapter(self, rig):
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 5), (Kind.DIGIT, 8), (Kind.DIGIT, 2), (Kind.DIGIT, 6), Kind.PUSH)
+        assert rig.app.pick_chapter == 1
+        rig.press(Kind.UP)
+        assert rig.app.pick_chapter == 2
+        rig.press(Kind.DOWN)
+        assert rig.app.pick_chapter == 1
+
+    def test_up_raises_the_verse(self, rig):
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 5), (Kind.DIGIT, 8), (Kind.DIGIT, 2), (Kind.DIGIT, 6), Kind.PUSH)
+        rig.press((Kind.DIGIT, 3), Kind.PUSH)
+        assert rig.app.pick_verse == 1
+        rig.press(Kind.UP)
+        assert rig.app.pick_verse == 2
+
+    def test_the_book_list_still_moves_like_a_list(self, rig):
+        """▲ goes up the 66 books, as it does on every other list screen."""
+        open_bible(rig)
+        rig.press(Kind.DOWN)
+        assert rig.app.pick_cursor == 1
+        rig.press(Kind.UP)
+        assert rig.app.pick_cursor == 0
+
+
 class TestOnTheWall:
     @pytest.fixture
     def showing(self, rig):
@@ -170,12 +200,23 @@ class TestOnTheWall:
         assert rig.player.showing_idle
         assert rig.slides.cancelled == 1
 
-    def test_the_dpad_does_the_same(self, showing):
+    def test_the_dpad_raises_the_verse_number_with_up(self, showing):
+        """A verse number is a number, not a list row: ▲ means a later
+        verse, the way it means a higher hymn number on the home screen."""
         rig = showing
-        rig.press(Kind.DOWN)
-        assert rig.app.bible_ref == Reference(JUAN, 3, 3, 3)
         rig.press(Kind.UP)
+        assert rig.app.bible_ref == Reference(JUAN, 3, 3, 3)
+        rig.press(Kind.DOWN)
         assert rig.app.bible_ref == Reference(JUAN, 3, 2, 2)
+
+    def test_the_wheel_and_the_dpad_agree(self, showing):
+        """Clockwise and ▲ are the same direction -- they were not, and the
+        wheel was the one that matched the rest of the panel."""
+        rig = showing
+        rig.press(Kind.WHEEL_CW)
+        after_wheel = rig.app.bible_ref
+        rig.press(Kind.WHEEL_CCW, Kind.UP)
+        assert rig.app.bible_ref == after_wheel
 
     def test_hash_adds_a_verse_and_star_takes_it_off(self, showing):
         rig = showing
