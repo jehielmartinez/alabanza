@@ -8,6 +8,9 @@
     uv run build_bible.py --source file.json  # convert a copy you already have
     uv run build_bible.py --check             # report only, write nothing
 
+Nothing is written if the source has problems -- that is what the checks are
+for -- unless --force says the fault is understood.
+
 Takes the dscottpi/bibles JSON -- {book: {chapter: {verse: text}}} -- and
 writes tools/bible/rvr1960/:
 
@@ -70,7 +73,14 @@ def _fetch(source: str | None) -> dict:
 
 
 def convert(raw: dict) -> tuple[list[list[list[str]]], list[str]]:
-    """The 66 books in order, and every complaint about the source."""
+    """The 66 books in order, and every complaint about the source.
+
+    Chapters and verses go where their own number says, never in the order
+    they happen to arrive. A source missing Genesis 3 would otherwise shunt
+    everything after it up one, and the app would show Genesis 4 under the
+    label "Genesis 3" -- a defect nobody reads off a projector. A hole stays
+    a hole, and main() refuses to write one.
+    """
     books: list[list[list[str]]] = [[] for _ in BOOKS]
     problems: list[str] = []
     seen: set[int] = set()
@@ -90,13 +100,23 @@ def convert(raw: dict) -> tuple[list[list[list[str]]], list[str]]:
         if [c for c, _ in numbered] != list(range(1, expected_chapters + 1)):
             problems.append(f"{name}: chapters {[c for c, _ in numbered][:3]}…"
                             f" ({len(numbered)}), expected 1..{expected_chapters}")
+        placed: list[list[str]] = [[] for _ in range(expected_chapters)]
         for chapter, verses in numbered:
             ordered = sorted(((int(v), t) for v, t in verses.items()), key=lambda vt: vt[0])
             numbers = [v for v, _ in ordered]
             if numbers != list(range(1, len(numbers) + 1)):
                 problems.append(f"{name} {chapter}: verse numbers {numbers[:5]}…"
                                 f" are not 1..{len(numbers)}")
-            books[index].append([_clean(t) for _, t in ordered])
+            if not 1 <= chapter <= expected_chapters:
+                problems.append(f"{name}: chapter {chapter} is outside "
+                                f"1..{expected_chapters}")
+                continue
+            text = [""] * (numbers[-1] if numbers else 0)
+            for number, raw_text in ordered:
+                if 1 <= number <= len(text):
+                    text[number - 1] = _clean(raw_text)
+            placed[chapter - 1] = text
+        books[index] = placed
     for index, (name, _, _) in enumerate(BOOKS):
         if index not in seen:
             problems.append(f"missing book: {name}")
@@ -120,19 +140,30 @@ def main() -> int:
     parser.add_argument("--source", help="a downloaded copy of the JSON")
     parser.add_argument("--out", type=Path, default=OUT_DIR)
     parser.add_argument("--check", action="store_true", help="report only")
+    parser.add_argument("--force", action="store_true",
+                        help="write even though the source has problems")
     args = parser.parse_args()
 
     books, problems = convert(_fetch(args.source))
-    total = sum(len(chapter) for book in books for chapter in book)
-    print(f"{sum(1 for b in books if b)} books, "
-          f"{sum(len(b) for b in books)} chapters, {total} verses "
-          f"(canonical {CANONICAL_VERSES})")
+    # a hole left by a gap is an empty string in place, so it is counted
+    # here the way the source counts it: not there
+    chapters = sum(1 for book in books for chapter in book if chapter)
+    total = sum(1 for book in books for chapter in book for verse in chapter if verse)
+    if total != CANONICAL_VERSES:
+        problems.append(f"verse total differs from canonical by "
+                        f"{total - CANONICAL_VERSES}")
+    print(f"{sum(1 for b in books if b)} books, {chapters} chapters, "
+          f"{total} verses (canonical {CANONICAL_VERSES})")
     for problem in problems:
         print(f"  ! {problem}")
-    if total != CANONICAL_VERSES:
-        print(f"  ! verse total differs from canonical by {total - CANONICAL_VERSES}")
     if args.check:
         return 1 if problems else 0
+    # The whole point of the checks is that a defect is caught here rather
+    # than on a projector, which it is not if a defective build is written
+    # anyway. --force is for a fault already understood and accepted.
+    if problems and not args.force:
+        print("nothing written: fix the source, or --force to write it as it is")
+        return 1
     write(books, args.out)
     print(f"written to {args.out}/")
     return 0
