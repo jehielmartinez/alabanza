@@ -450,6 +450,29 @@ class Slides:
             self.drawn = (ref, shown)
             self._player.show_image(final)
 
+    def _warm_the_next_fit(self, generation: int) -> None:
+        """Measure the words `#` would add, here instead of on the loop thread.
+
+        `fits` asks whether a range still holds at MIN_SIZE, and the size
+        search never evaluates MIN_SIZE for a passage that fits above it --
+        so the word widths that answer costs are reliably cold, and the loop
+        thread paid 24-38 ms of Pillow for them on the Zero W against a
+        50 ms tick. They cost the same here, on a thread that has just spent
+        half a second and has nothing waiting on it, and leave the keypress
+        10-15 ms for a warm lookup.
+
+        Only the result is thrown away, never the work: the same widths are
+        what the next slide is laid out from. Superseded means the operator
+        has already moved, so the request behind this one matters more.
+        """
+        with self._lock:
+            if generation != self._generation or self.drawn is None:
+                return
+            ref = self.drawn[1]         # what is on the wall, trim included
+        more = self._bible.extend(ref)
+        if more != ref:                 # at the chapter's end there is nothing to add
+            fits(self._bible, more)
+
     def _run(self) -> None:
         while not self._stop.is_set():
             self._wake.wait(0.2)
@@ -461,6 +484,7 @@ class Slides:
                 continue
             try:
                 self._render(ref, generation)
+                self._warm_the_next_fit(generation)
             except Exception as exc:            # noqa: BLE001
                 self.last_error = exc           # a bad slide must not stop the hymns
 

@@ -315,6 +315,17 @@ line. Word widths are now cached per size (Layout.BASIC has no kerning,
 so a line is the sum of its words) and the size is found by binary
 search, five layouts instead of seventeen.
 
+The one piece of Pillow left on the loop thread is the `fits` check behind
+`#`, and it was the expensive kind: a layout at the 32 px floor, which the
+size search never reaches for a passage that fits above it, so its word
+widths were always cold. Measured on the Zero W through the worker, that
+keypress cost **35–53 ms** against a 50 ms tick — a dropped tick on the
+worst of them. The worker measures the next verse's words itself, right
+after the slide lands, on a thread that has just spent half a second and
+has nothing waiting on it; the keypress is **2–12 ms** now. Nothing is
+thrown away but the boolean: those same widths are what the next slide is
+laid out from.
+
 Not yet done, because HDMI was unplugged on the bench: **seeing a slide on
 a projector from the Zero W**. The screensavers go through the identical
 `show_image`, so if the projector showed one at the church test this is
