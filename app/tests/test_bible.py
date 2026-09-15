@@ -275,6 +275,52 @@ class TestTheWorker:
         assert player.images, "nothing was rendered"
         assert len(player.images) < 4, "the ones the wheel passed were skipped"
 
+    def test_it_measures_the_next_verse_before_the_keypress_needs_it(self, tmp_path):
+        """`#` asks whether one more verse still fits, which is a layout at
+        MIN_SIZE -- a size the search never reaches for a passage that fits
+        above it, so those word widths are always cold. On the Zero W that
+        was 35-53 ms of Pillow on the loop thread against a 50 ms tick, and
+        2-12 ms once this thread has measured them."""
+        player = FakePlayer()
+        bible = make_bible()
+        slides = Slides(player, bible, directory=tmp_path, threaded=False)
+        ref = Reference(JUAN, 3, 1, 1)
+        slides.show(ref)
+        more = bible.extend(ref)
+
+        bible_module._width.cache_clear()
+        before = bible_module._width.cache_info().misses
+        fits(bible, more)
+        assert bible_module._width.cache_info().misses > before, \
+            "nothing was cold, so this test proves nothing"
+
+        bible_module._width.cache_clear()
+        slides._warm_the_next_fit(slides._generation)
+        before = bible_module._width.cache_info().misses
+        fits(bible, more)
+        assert bible_module._width.cache_info().misses == before, \
+            "the loop thread still had to measure the words itself"
+
+    def test_a_superseded_render_is_not_warmed(self, tmp_path):
+        """The operator has already turned the wheel again: the request
+        behind this one is the better use of the thread."""
+        player = FakePlayer()
+        bible = make_bible()
+        slides = Slides(player, bible, directory=tmp_path, threaded=False)
+        slides.show(Reference(JUAN, 3, 1, 1))
+        bible_module._width.cache_clear()
+        before = bible_module._width.cache_info().misses
+        slides._warm_the_next_fit(slides._generation - 1)
+        assert bible_module._width.cache_info().misses == before
+
+    def test_the_last_verse_of_a_chapter_has_nothing_to_warm(self, tmp_path):
+        player = FakePlayer()
+        bible = make_bible(verses_per_chapter=3)
+        slides = Slides(player, bible, directory=tmp_path, threaded=False)
+        slides.show(Reference(JUAN, 3, 3, 3))       # nothing left to add
+        slides._warm_the_next_fit(slides._generation)
+        assert slides.last_error is None
+
     def test_cancelling_drops_a_render_already_under_way(self, tmp_path, monkeypatch):
         """The operator turns the wheel and then walks off the slide screen
         inside the half second the Zero W takes to draw. What the caller puts
