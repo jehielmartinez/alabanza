@@ -7,14 +7,17 @@ the shape of the real download, including the two defects it has to fix.
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+import alabanza.bible as bible_module
 from alabanza.bible import (
-    MARGIN_X, MARGIN_Y, MAX_SIZE, MIN_SIZE, H, W,
-    Bible, Reference, Slides, _layout, best_size, fits, render, search_books,
+    FOOTER_SIZE, MARGIN_X, MARGIN_Y, MAX_SIZE, MIN_SIZE, H, W,
+    Bible, Reference, Slides, _layout, _layout_regardless, best_size, fits,
+    render, search_books,
 )
 from alabanza.books import BOOKS, BY_KEY, CANONICAL_VERSES, fold
 
@@ -187,9 +190,47 @@ class TestTheSlide:
 
     def test_a_passage_that_cannot_fit_still_renders(self):
         long = Bible(data={JUAN: [["palabra " * 200] * 10]})
-        assert not fits(long, Reference(JUAN, 1, 1, 10))
-        image = render(long, Reference(JUAN, 1, 1, 10))
+        ref = Reference(JUAN, 1, 1, 10)
+        assert not fits(long, ref)
+        image = render(long, ref)
         assert image.size == (W, H)
+        runs, shown = _layout_regardless(long, ref)
+        assert shown == Reference(JUAN, 1, 1, 1), "trimmed to what there is room for"
+        assert [r.text for r in runs if r.size < MIN_SIZE] == ["1"]
+
+    def test_one_verse_too_long_for_the_slide_is_not_a_black_screen(self):
+        """It overflows the bottom, which is what the docstring promises;
+        an empty wall in front of a congregation is the worse failure."""
+        huge = Bible(data={JUAN: [["palabra " * 400]]})
+        ref = Reference(JUAN, 1, 1, 1)
+        assert not fits(huge, ref)
+        runs, shown = _layout_regardless(huge, ref)
+        assert shown == ref
+        assert [r.text for r in runs if r.size < MIN_SIZE] == ["1"], "the verse number"
+        assert len(runs) > 10, "and lines of it, running off the bottom"
+
+        def lit(image):
+            return sum(image.convert("L").histogram()[1:])     # non-black pixels
+
+        footer_only = lit(render(Bible(data={JUAN: [[""]]}), ref))
+        assert lit(render(huge, ref)) > footer_only * 5, "the slide is words, not a footer"
+
+    def test_the_footer_names_what_is_on_the_slide_not_what_was_asked(self):
+        """Verses dropped for room must not still be promised in the label:
+        the congregation reads the footer to find the passage."""
+        b = Bible(data={JUAN: [["palabra " * 90] * 6]})
+        ref = Reference(JUAN, 1, 1, 6)
+        assert not fits(b, ref)
+        _, shown = _layout_regardless(b, ref)
+        assert shown.last < ref.last, "the tail had to go"
+
+        # the strip the footer has to itself, below every fitting layout
+        strip = (0, H - MARGIN_Y - FOOTER_SIZE + 12, W, H)
+        assert (render(b, ref).crop(strip).tobytes()
+                == render(b, shown).crop(strip).tobytes()), "it names the trimmed range"
+        roomy = Bible(data={JUAN: [["palabra"] * 6]})
+        assert (render(b, ref).crop(strip).tobytes()
+                != render(roomy, ref).crop(strip).tobytes()), "not the range asked for"
 
 
 class TestTheWorker:
@@ -223,6 +264,50 @@ class TestTheWorker:
         assert slides.last_error is None
         assert player.images, "nothing was rendered"
         assert len(player.images) < 4, "the ones the wheel passed were skipped"
+
+    def test_cancelling_drops_a_render_already_under_way(self, tmp_path, monkeypatch):
+        """The operator turns the wheel and then walks off the slide screen
+        inside the half second the Zero W takes to draw. What the caller puts
+        on HDMI next has to stay there."""
+        drawing, finish = threading.Event(), threading.Event()
+        real = bible_module.render
+
+        def slowly(bible, ref):
+            drawing.set()
+            finish.wait(5)
+            return real(bible, ref)
+
+        monkeypatch.setattr(bible_module, "render", slowly)
+        player = FakePlayer()
+        slides = Slides(player, make_bible(), directory=tmp_path)
+        try:
+            slides.show(Reference(JUAN, 3, 16, 16))
+            assert drawing.wait(5), "the worker never picked the request up"
+            slides.cancel()                 # * on the panel: back to the picker
+            finish.set()
+        finally:
+            finish.set()
+            slides.close()
+        assert slides.last_error is None
+        assert player.images == [], "a dismissed verse went back on the projector"
+
+    def test_a_dropped_render_does_not_consume_a_name(self, tmp_path, monkeypatch):
+        """Names alternate so mpv is always asked for a path it does not
+        already have open; a render nobody saw must not spend one."""
+        player = FakePlayer()
+        slides = Slides(player, make_bible(), directory=tmp_path, threaded=False)
+        slides.show(Reference(JUAN, 3, 16, 16))         # verse-1 goes up
+        real = bible_module.render
+
+        def cancelled_midway(bible, ref):
+            slides.cancel()                             # * lands while it draws
+            return real(bible, ref)
+
+        monkeypatch.setattr(bible_module, "render", cancelled_midway)
+        slides.show(Reference(JUAN, 3, 17, 17))
+        monkeypatch.undo()
+        slides.show(Reference(JUAN, 3, 18, 18))
+        assert [p.name for p in player.images] == ["verse-1.bmp", "verse-0.bmp"]
 
 
 class TestTheConverter:

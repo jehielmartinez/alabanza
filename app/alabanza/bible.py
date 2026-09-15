@@ -260,9 +260,10 @@ def _wrap(text: str, size: int, width: int, indent: int) -> list[str]:
     return lines
 
 
-def _layout(bible: Bible, ref: Reference, size: int) -> list[_Run] | None:
-    """Every run of text on the slide at this type size, or None if the
-    passage does not fit the height budget at it."""
+def _runs(bible: Bible, ref: Reference, size: int) -> tuple[list[_Run], bool]:
+    """Every run of text on the slide at this type size, and whether it fits
+    the height budget. The runs are laid out either way: a passage that will
+    not fit is still drawn, running off the bottom, rather than not drawn."""
     number_size = int(size * NUMBER_SCALE)
     width = W - 2 * MARGIN_X
     budget = H - 2 * MARGIN_Y - FOOTER_SIZE - 12
@@ -283,9 +284,13 @@ def _layout(bible: Bible, ref: Reference, size: int) -> list[_Run] | None:
             y += line_h
         y += gap
     used = y - gap - MARGIN_Y
-    if used > budget:
-        return None
-    return runs
+    return runs, used <= budget
+
+
+def _layout(bible: Bible, ref: Reference, size: int) -> list[_Run] | None:
+    """The runs at this size, or None if the passage does not fit at it."""
+    runs, fitted = _runs(bible, ref, size)
+    return runs if fitted else None
 
 
 def fits(bible: Bible, ref: Reference) -> bool:
@@ -314,12 +319,18 @@ def render(bible: Bible, ref: Reference) -> Image.Image:
     MIN_SIZE regardless, so a passage that somehow got too long is cut off
     at the bottom rather than not shown at all."""
     size = best_size(bible, ref)
-    runs = _layout(bible, ref, size) if size else _layout_regardless(bible, ref)
+    if size:
+        runs, shown = _layout(bible, ref, size), ref
+    else:
+        runs, shown = _layout_regardless(bible, ref)
     image = Image.new("RGB", (W, H), (0, 0, 0))
     draw = ImageDraw.Draw(image)
     for run in runs:
         draw.text((run.x, run.y), run.text, font=_font(run.size), fill=run.fill)
-    footer = f"{ref.label} · {VERSION}"
+    # `shown`, not `ref`: if the last verses had to be dropped the footer
+    # says so, rather than promising the congregation a verse that is not
+    # on the wall.
+    footer = f"{shown.label} · {VERSION}"
     footer_font = _font(FOOTER_SIZE)
     # the footer sits a little way into the bottom margin, leaving the
     # verses the room; 8% was for overscan and the footer can afford to lose
@@ -328,12 +339,16 @@ def render(bible: Bible, ref: Reference) -> Image.Image:
     return image
 
 
-def _layout_regardless(bible: Bible, ref: Reference) -> list[_Run]:
-    """_layout at MIN_SIZE with the height check waived."""
+def _layout_regardless(bible: Bible, ref: Reference) -> tuple[list[_Run], Reference]:
+    """MIN_SIZE with the height check waived: drop verses off the end until
+    what is left fits, and if even the first one does not, draw it anyway and
+    let it run off the bottom. Returns the runs and the reference they cover,
+    which is what the footer has to name -- a black slide, or one silently
+    missing its last verse, is worse than one that overflows."""
     trimmed = ref
     while trimmed.last > trimmed.first and _layout(bible, trimmed, MIN_SIZE) is None:
         trimmed = bible.shrink(trimmed)
-    return _layout(bible, trimmed, MIN_SIZE) or []
+    return _runs(bible, trimmed, MIN_SIZE)[0], trimmed
 
 
 # --- the worker ------------------------------------------------------------
@@ -356,6 +371,12 @@ class Slides:
     opens a half-written file; the two final names alternate so a reload
     is always a different path from the one on screen.
 
+    A render already under way is abandoned if the reference it was drawing
+    stops being the one wanted -- superseded by a later `show`, or dropped by
+    `cancel` when the operator leaves the slide screen. Half a second is long
+    enough to walk away from, and a slide that lands after that would sit on
+    the projector until the next load.
+
     `threaded=False` renders inline, for tests and for measuring.
     """
 
@@ -366,6 +387,7 @@ class Slides:
         self._dir = directory or _slide_dir()
         self._which = 0
         self._pending: Reference | None = None
+        self._generation = 0
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -378,21 +400,43 @@ class Slides:
             self._thread.start()
 
     def show(self, ref: Reference) -> None:
-        if self._thread is None:
-            self._render(ref)
-            return
         with self._lock:
-            self._pending = ref
-        self._wake.set()
+            self._generation += 1
+            generation = self._generation
+            if self._thread is not None:
+                self._pending = ref
+        if self._thread is None:
+            self._render(ref, generation)
+        else:
+            self._wake.set()
 
-    def _render(self, ref: Reference) -> None:
-        self._which ^= 1
-        final = self._dir / f"verse-{self._which}.bmp"
+    def cancel(self) -> None:
+        """Abandon whatever is queued or drawing.
+
+        Called by whoever is about to put something else on HDMI -- the
+        screensaver on the way out of the slide screen, a hymn on the way
+        into one. Returns only once an in-flight render is past the point
+        where it could call `show_image`, so the caller's own load is the
+        last word and stays on screen.
+        """
+        with self._lock:
+            self._pending = None
+            self._generation += 1
+
+    def _render(self, ref: Reference, generation: int) -> None:
         tmp = self._dir / "verse.tmp"
         render(self._bible, ref).save(tmp, format="BMP")
-        os.replace(tmp, final)
-        self.shown.append(final)
-        self._player.show_image(final)
+        # Everything that decides what is on screen happens under the lock,
+        # including the name flip: a discarded render must not consume a
+        # slot, or the next one reuses the path mpv already has open.
+        with self._lock:
+            if generation != self._generation:
+                return                      # cancelled, or superseded, while it drew
+            self._which ^= 1
+            final = self._dir / f"verse-{self._which}.bmp"
+            os.replace(tmp, final)
+            self.shown.append(final)
+            self._player.show_image(final)
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -400,14 +444,16 @@ class Slides:
             self._wake.clear()
             with self._lock:
                 ref, self._pending = self._pending, None
+                generation = self._generation
             if ref is None:
                 continue
             try:
-                self._render(ref)
+                self._render(ref, generation)
             except Exception as exc:            # noqa: BLE001
                 self.last_error = exc           # a bad slide must not stop the hymns
 
     def close(self) -> None:
+        self.cancel()           # nothing lands on HDMI after the app is down
         self._stop.set()
         self._wake.set()
         if self._thread is not None:

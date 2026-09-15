@@ -184,6 +184,13 @@ which is what drove `tools/make_screensaver.py` too:
 - **Reference bottom-right, grey, smaller**: `Juan 3:16-18` and, a step
   smaller still, `RVR1960`. The version label is a courtesy to whoever
   is reading along in another edition.
+- **A passage that will not fit at the floor is still shown**: verses come
+  off the end until what is left fits, and the reference bottom-right names
+  the range actually on the wall rather than the one asked for. If even the
+  first verse is too long it is drawn anyway and runs off the bottom — a
+  black screen in front of a congregation is the worse failure. Only
+  reachable by stepping a multi-verse range into longer verses; the
+  deliberate case is refused up front with `No cabe más`.
 - No transitions, no fades. Swap the file, the wall changes.
 
 ## Architecture

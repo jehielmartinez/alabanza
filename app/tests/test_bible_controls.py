@@ -160,6 +160,16 @@ class TestOnTheWall:
         assert rig.app.bible_ref == Reference(JUAN, 3, 1, 1)
         assert len(rig.slides.shown) == 3
 
+    def test_walking_off_drops_a_slide_still_drawing(self, showing):
+        """* goes back to the picker and the screensaver goes up. A render
+        started by the last turn of the wheel must not land on top of it."""
+        rig = showing
+        rig.press(Kind.WHEEL_CW)
+        rig.press(Kind.STAR)
+        assert rig.app.mode is Mode.BIBLE_PICK
+        assert rig.player.showing_idle
+        assert rig.slides.cancelled == 1
+
     def test_the_dpad_does_the_same(self, showing):
         rig = showing
         rig.press(Kind.DOWN)
@@ -263,3 +273,21 @@ class TestOnTheWall:
             rig.clock.advance(0.05)
             rig.press(Kind.PUSH_HELD)
         assert rig.app.shutdown_requested
+
+
+class TestLeavingForAHymn:
+    def test_a_hymn_drops_a_slide_still_drawing(self, rig):
+        """A slide landing after the hymn sets the player back to "a still is
+        up", and the next tick reads that as the hymn having finished."""
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 5), (Kind.DIGIT, 8), (Kind.DIGIT, 2), (Kind.DIGIT, 6), Kind.PUSH)
+        rig.press((Kind.DIGIT, 3), Kind.PUSH, (Kind.DIGIT, 2), Kind.PUSH)
+        assert rig.app.mode is Mode.BIBLE_SHOW
+        rig.press(Kind.STAR, Kind.STAR)                  # picker, then the menu
+        assert rig.app.mode is Mode.MENU
+        rig.press(Kind.STAR)                             # home
+        rig.slides.cancelled = 0
+        rig.type_number(5)
+        rig.press(Kind.CONFIRM)
+        assert rig.player.active
+        assert rig.slides.cancelled == 1
