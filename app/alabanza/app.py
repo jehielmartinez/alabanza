@@ -240,6 +240,10 @@ class App:
             return
         if self._bt.scanning:
             self.bt.scan(False)     # discovery audibly degrades A2DP
+        # A slide landing after the hymn would set the player back to "still
+        # on screen", and the next tick would read that as the hymn having
+        # finished and stop it.
+        self._cancel_slides()
         self.player.play(hymn.path)
         self.now_playing = hymn
         self.browse = hymn.number
@@ -491,6 +495,13 @@ class App:
         self.flash(f"Máximo {maximum}")
         return min(max(1, typed), maximum)
 
+    def _cancel_slides(self) -> None:
+        """Drop any slide still drawing, before putting something else on
+        HDMI. Without this the render started by the last turn of the wheel
+        lands half a second later, on top of whatever replaced it."""
+        if self.slides is not None:
+            self.slides.cancel()
+
     def _show_passage(self, ref: Reference) -> None:
         self.bible_ref = ref
         self.bible_entry = ""
@@ -569,6 +580,7 @@ class App:
             else:
                 self._pick_from(ref)
                 self.mode = Mode.BIBLE_PICK
+                self._cancel_slides()       # ...including one still drawing
                 self.player.show_idle()     # never leave a stale verse up
         elif k is Kind.DIGIT:
             if len(self.bible_entry) < 3:

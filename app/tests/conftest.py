@@ -94,13 +94,17 @@ class FakePlayer:
 
 
 class FakeSlides:
-    """The slide worker's contract: show(ref), and nothing else."""
+    """The slide worker's contract: show(ref) and cancel()."""
 
     def __init__(self):
         self.shown: list = []
+        self.cancelled = 0
 
     def show(self, ref):
         self.shown.append(ref)
+
+    def cancel(self):
+        self.cancelled += 1
 
 
 def make_bible(verses_per_chapter: int = 5) -> Bible:
