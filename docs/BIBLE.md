@@ -125,9 +125,11 @@ remembers the last passage shown, so after `*` from the slide the fields
 come back filled and the next reading is one edit away.
 
 OLED, 4 rows: status `BIBLIA`; row 2 the reference being built
-(`Juan 3:1_`) in the title font; rows 3–4 the book list while on Libro, or
+(`Juan 3:1_`) in the title font; rows 3–5 the book list while on Libro, or
 the chapter/verse limits (`150 capítulos`, `36 versículos`) after; hint
-`gira y pulsa`.
+`gira y pulsa` on Capítulo and Versículo, and **none on Libro** — turning
+and pushing is what the panel does everywhere, and the row buys a third
+book instead. A flash message still takes the row while it is up.
 
 ### Screen 2 — the slide (`BIBLE_SHOW`)
 
@@ -165,7 +167,10 @@ switch conventions between screens.
 OLED: status `BIBLIA`; row 2 the reference in the title font
 (`Juan 3:16-18`); rows 3–4 the first words of the first verse, so the
 operator can confirm it is the right one without looking at the wall;
-hint `gira · # añade · * quita`. The D-pad's ◀ ▶ are not advertised.
+hint `* quita · # añade`, in the keypad's own left-to-right order — the
+two keys are next to each other on the bottom row, and naming them the
+other way round made the operator cross their hand over. The D-pad's ◀ ▶
+are not advertised.
 
 Leaving with `*` from a single verse restores the screensaver on HDMI
 (`show_idle`), so the wall is never left on a stale verse — including a

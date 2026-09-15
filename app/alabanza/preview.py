@@ -100,8 +100,7 @@ SCREENS = {
     # the operator can check it without looking at the wall
     "bible_book": ViewModel(
         state="alt", status_left="BIBLIA",
-        lines=["Libro: 58_", "> Juan", "  1 Juan"],
-        hint="gira y pulsa",
+        lines=["Libro: 58_", "> Juan", "  1 Juan", "  2 Juan"],
     ),
     "bible_chapter": ViewModel(
         state="alt", status_left="BIBLIA",
@@ -112,7 +111,7 @@ SCREENS = {
         state="alt", status_left="BIBLIA", status_right="36 vers.",
         title="Juan 3:16-18",
         subtitle="Porque de tal manera amó Dios al mundo, que ha dado",
-        hint="# añade · * quita",
+        hint="* quita · # añade",
     ),
     "bt_connecting": ViewModel(
         state="idle", output="bluetooth",

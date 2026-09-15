@@ -691,17 +691,22 @@ class App:
         name = BOOKS[self.pick_book][0]
         hint = self.message or "gira y pulsa"
         if self.pick_field == 0:
+            # No standing hint on the book list. Turning and pushing is what
+            # the panel does on every screen, and the row it costs is worth
+            # more as a third book: two rows of 66 is a keyhole. A flash
+            # still takes the row, for the couple of seconds it is up.
+            hint = self.message
             books = self._pick_books()
+            rows_for_books = LIST_ROWS - 1          # the rest is `Libro:`
             if books:
                 cursor = min(self.pick_cursor, len(books) - 1)
-                start = _window(len(books), cursor, 2)
+                start = _window(len(books), cursor, rows_for_books)
                 rows = [("> " if i == cursor else "  ") + BOOKS[b][0]
-                        for i, b in enumerate(books[start: start + 2], start)]
+                        for i, b in enumerate(
+                            books[start: start + rows_for_books], start)]
             else:
                 rows = ["  (sin resultados)"]
             lines = [f"Libro: {self.pick_query}_"] + rows
-            if not self.pick_query:
-                hint = self.message or "gira, o 1 toque/letra"
         elif self.pick_field == 1:
             value = f"{self.pick_entry}_" if self.pick_entry else str(self.pick_chapter)
             lines = [f"  {name}", f"> Capítulo {value}",
@@ -723,7 +728,7 @@ class App:
             status_right=f"{self.bible_entry}_" if self.bible_entry else f"{count} vers.",
             title=label,
             subtitle=self.bible.text(ref.book, ref.chapter, ref.first),
-            hint=self.message or "# añade · * quita",
+            hint=self.message or "* quita · # añade",   # in the keypad's own order
         )
 
     # -- bluetooth -----------------------------------------------------

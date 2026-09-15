@@ -78,6 +78,20 @@ class TestPickingAPassage:
         rig.press(Kind.WHEEL_CW, Kind.WHEEL_CW)
         assert rig.cursor_row() == "> Éxodo"
 
+    def test_the_book_list_spends_the_hint_row_on_a_third_book(self, rig):
+        """Two rows of 66 books is a keyhole, and "turn and push" is what
+        the panel does on every screen -- so Libro carries no hint."""
+        vm = open_bible(rig)
+        assert vm.hint == ""
+        assert vm.lines == ["Libro: _", "> Génesis", "  Éxodo", "  Levítico"]
+
+    def test_a_flash_still_takes_that_row(self, rig):
+        """It is worth a book for the seconds it is up."""
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 9), (Kind.DIGIT, 9), (Kind.DIGIT, 9))
+        vm = rig.press(Kind.PUSH)
+        assert "Sin resultados" in vm.hint
+
     def test_t9_narrows_and_star_erases(self, rig):
         open_bible(rig)
         vm = rig.press((Kind.DIGIT, 5), (Kind.DIGIT, 8))       # Ju
@@ -365,7 +379,7 @@ class TestOnTheWall:
         assert vm.title == "Juan 3:2"
         assert vm.subtitle.startswith("Juan 3:2 palabra")
         assert vm.status_right == "6 vers."
-        assert vm.hint == "# añade · * quita"
+        assert vm.hint == "* quita · # añade", "the keypad's own order"
 
     def test_a_long_reference_uses_the_abbreviation(self, rig):
         open_bible(rig)
