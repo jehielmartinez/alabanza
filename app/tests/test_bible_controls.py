@@ -7,7 +7,7 @@ on the wall, * takes one off.
 
 import pytest
 
-from alabanza.app import Mode
+from alabanza.app import HOLD_STALE, PICKER_HOLD, Mode
 from alabanza.bible import Reference
 from alabanza.books import BOOKS
 from alabanza.events import Kind
@@ -210,6 +210,51 @@ class TestOnTheWall:
         vm = rig.press(Kind.CONFIRM)                    # # -> Juan 3:2-3
         assert rig.app.bible_ref == Reference(JUAN, 3, 2, 3)
         assert vm.title == "Juan 3:2-3", "not trimmed back by a stale report"
+
+    def test_holding_star_goes_straight_back_to_the_picker(self, showing):
+        """Five verses up used to be five presses of * to leave. The hold is
+        the same key meaning the same thing, taken all the way."""
+        rig = showing
+        rig.press(Kind.CONFIRM, Kind.CONFIRM, Kind.CONFIRM)     # Juan 3:2-5
+        assert rig.app.bible_ref == Reference(JUAN, 3, 2, 5)
+        rig.press(Kind.STAR)                                    # down: 3:2-4
+        assert rig.app.bible_ref == Reference(JUAN, 3, 2, 4)
+        rig.clock.advance(PICKER_HOLD)
+        rig.press(Kind.STAR_HELD)
+        assert rig.app.mode is Mode.BIBLE_PICK
+        assert rig.player.showing_idle, "and the wall is back to the screensaver"
+        assert rig.slides.cancelled >= 1, "a slide still drawing is dropped"
+
+    def test_the_picker_opens_where_the_reading_was(self, showing):
+        rig = showing
+        rig.press(Kind.CONFIRM)                                 # Juan 3:2-3
+        rig.press(Kind.STAR)
+        rig.clock.advance(PICKER_HOLD)
+        rig.press(Kind.STAR_HELD)
+        assert (rig.app.pick_book, rig.app.pick_chapter) == (JUAN, 3)
+
+    def test_a_quick_star_is_still_just_one_verse_off(self, showing):
+        """The hold must not fire on a normal press, or * stops being usable
+        for what it is mostly for."""
+        rig = showing
+        rig.press(Kind.CONFIRM, Kind.CONFIRM)                   # Juan 3:2-4
+        rig.press(Kind.STAR)
+        rig.clock.advance(PICKER_HOLD - 0.1)
+        rig.tick()
+        assert rig.app.mode is Mode.BIBLE_SHOW
+        assert rig.app.bible_ref == Reference(JUAN, 3, 2, 3)
+
+    def test_keepalives_that_stop_are_not_a_hold(self, showing):
+        """A backend that cannot report holding at all must not look like
+        one that is holding forever."""
+        rig = showing
+        rig.press(Kind.CONFIRM)
+        rig.press(Kind.STAR)
+        rig.clock.advance(HOLD_STALE + 0.1)                     # nothing since
+        rig.tick()
+        rig.clock.advance(PICKER_HOLD)
+        rig.tick()
+        assert rig.app.mode is Mode.BIBLE_SHOW
 
     def test_the_range_moves_as_one(self, showing):
         rig = showing

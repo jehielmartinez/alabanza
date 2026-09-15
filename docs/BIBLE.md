@@ -141,6 +141,7 @@ as one slide. It opens as a single verse.
 | Push, `#` | **add** the next verse to the slide (16 → 16–17). If digits are typed: jump to that verse in this chapter instead, as a single verse |
 | `0`–`9` | type a verse number to jump to; `#` shows it |
 | `*` | erase a typed digit; else **remove** the last verse of the range; on a single verse, back to Screen 1 |
+| `*` held | back to Screen 1 at once, however many verses are up (0.75 s) |
 | ◀ ▶ | previous / next chapter, from verse 1 |
 | D-pad centre | nothing (no transport here; a hymn cannot play while a slide is up) |
 
@@ -149,6 +150,11 @@ put more on the wall, `*` to take it off. A slide holds as many verses as
 fit at the minimum type size; a push that would overflow flashes `No cabe
 más` and leaves the range alone. Nobody has to think about lines or
 pages — the layout is the app's problem.
+
+Holding `*` is the same word said harder: a five-verse reading took five
+presses to leave, and the hold does it in one. It adds no function — every
+state it skips is one a press would have reached — which is why it does not
+count against SPEC's "no long-presses" (see the note there).
 
 OLED: status `BIBLIA`; row 2 the reference in the title font
 (`Juan 3:16-18`); rows 3–4 the first words of the first verse, so the

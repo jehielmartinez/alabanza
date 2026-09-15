@@ -29,6 +29,7 @@ class Kind(Enum):
     PUSH = auto()         # encoder push — menu / select
     PUSH_HELD = auto()    # encoder push still down — repeats while it is
     PUSH_RELEASE = auto() # encoder push let go
+    STAR_HELD = auto()    # keypad * still down — repeats while it is
     RESCAN = auto()       # dev convenience: rescan library
     QUIT = auto()         # dev convenience: exit app
 

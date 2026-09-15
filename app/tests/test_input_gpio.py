@@ -146,3 +146,55 @@ class TestTheHardwareTestAgreesWithTheKeypad:
                 assert control.glyph == char, \
                     f"row {r} col {c}: matrix says {control.glyph}, legend {char}"
                 assert control.pins == (KEYPAD_ROWS[r], KEYPAD_COLS[c])
+
+
+class TestHoldingStar:
+    """`*` is the one keypad key that says anything while it is held.
+
+    No pins: `_events` touches three dictionaries and the clock, so the
+    matrix is built without its constructor and driven by hand.
+    """
+
+    def _matrix(self):
+        matrix = input_gpio._Matrix.__new__(input_gpio._Matrix)
+        matrix._down, matrix._changed, matrix._held_due = set(), {}, {}
+        return matrix
+
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        now = [1000.0]
+        monkeypatch.setattr(input_gpio.time, "monotonic", lambda: now[0])
+        return now
+
+    def test_it_keeps_saying_so_until_it_is_let_go(self, clock):
+        matrix, star = self._matrix(), (3, 0)
+        assert matrix._events({star}) == [Event(Kind.STAR)], "the press says it once"
+        clock[0] += input_gpio.HELD_REPEAT / 2
+        assert matrix._events({star}) == [], "too soon for a keepalive"
+        clock[0] += input_gpio.HELD_REPEAT
+        assert matrix._events({star}) == [Event(Kind.STAR_HELD)]
+        clock[0] += input_gpio.HELD_REPEAT
+        assert matrix._events({star}) == [Event(Kind.STAR_HELD)]
+        clock[0] += input_gpio.HELD_REPEAT
+        assert matrix._events(set()) == [], "let go: no keepalive, and no release"
+        clock[0] += input_gpio.HELD_REPEAT * 4
+        assert matrix._events(set()) == []
+
+    def test_no_other_key_repeats(self, clock):
+        """Holding a digit must not type it over and over."""
+        matrix, zero = self._matrix(), (3, 1)
+        assert matrix._events({zero}) == [Event(Kind.DIGIT, 0)]
+        for _ in range(5):
+            clock[0] += input_gpio.HELD_REPEAT
+            assert matrix._events({zero}) == []
+
+    def test_a_second_press_starts_the_clock_again(self, clock):
+        matrix, star = self._matrix(), (3, 0)
+        matrix._events({star})
+        clock[0] += input_gpio.HELD_REPEAT
+        assert matrix._events({star}) == [Event(Kind.STAR_HELD)]
+        clock[0] += input_gpio.HELD_REPEAT
+        matrix._events(set())                       # let go
+        clock[0] += input_gpio.HELD_REPEAT
+        assert matrix._events({star}) == [Event(Kind.STAR)]
+        assert matrix._events({star}) == [], "and no keepalive from the last hold"

@@ -56,6 +56,11 @@ HINT_ROWS = 3          # ...minus one on any screen that shows a hint, because
 SHUTDOWN_HOLD = 3.0
 SHUTDOWN_HINT = 0.6      # stay silent below this, so a normal press is quiet
 HOLD_STALE = 0.6         # no keepalive for this long means it is not held
+
+# Holding * on the slide screen goes back to the picker whatever is up. Short,
+# because unlike shutdown there is nothing to regret: it is the key's own
+# meaning -- back -- taken all the way.
+PICKER_HOLD = 0.75
                        # the hint is drawn over the fourth row
 MSG_CHARS = 21         # what one flash message fits at 128 px
 
@@ -130,6 +135,8 @@ class App:
         self.shutdown_requested = False   # quit, and then power the Pi off
         self._push_since: float | None = None
         self._push_seen = 0.0
+        self._star_since: float | None = None
+        self._star_seen = 0.0
         self._message = ""
         self._message_until = 0.0
         self._dirty = False
@@ -208,6 +215,28 @@ class App:
             return "Apagando..."
         return f"Sigue pulsando {SHUTDOWN_HOLD - held:.0f}s"
 
+    def _hold_picker(self) -> None:
+        """A held `*` on the slide screen goes back to the picker, however
+        many verses are on the wall.
+
+        `*` takes one verse off, so leaving a five-verse reading was five
+        presses. This is the same key meaning the same thing -- back -- taken
+        all the way, layered on the press the way shutdown is layered on the
+        encoder's. Timed here rather than in the input layer for the reason
+        the shutdown hold is: this class owns the injected clock.
+        """
+        if self._star_since is None:
+            return
+        now = self._now()
+        if now - self._star_seen > HOLD_STALE:
+            self._star_since = None     # released, or a backend with no holds
+            return
+        if now - self._star_since < PICKER_HOLD:
+            return
+        self._star_since = None
+        if self.mode is Mode.BIBLE_SHOW:
+            self._leave_slide(self.bible_ref)
+
     def flash(self, text: str, seconds: float = 2.5) -> None:
         self._message = text
         self._message_until = self._now() + seconds
@@ -262,6 +291,13 @@ class App:
             return
         elif event.kind is Kind.PUSH_RELEASE:
             self._push_since = None
+            return
+        elif event.kind is Kind.STAR:
+            # same shape as the push: * keeps doing what it did on the way
+            # down, and the hold is a second meaning layered on top
+            self._star_since = self._star_seen = self._now()
+        elif event.kind is Kind.STAR_HELD:
+            self._star_seen = self._now()
             return
 
         if event.kind is Kind.QUIT:
@@ -521,6 +557,15 @@ class App:
             self.bible_ref = shown
             self.flash("No cabe más")
 
+    def _leave_slide(self, ref: Reference) -> None:
+        """Back to the picker, prefilled, and the wall back to the
+        screensaver -- cancelling a slide still being drawn, which would
+        otherwise land on top of it."""
+        self._pick_from(ref)
+        self.mode = Mode.BIBLE_PICK
+        self._cancel_slides()
+        self.player.show_idle()
+
     def _show_passage(self, ref: Reference) -> None:
         self.bible_ref = ref
         self.bible_entry = ""
@@ -597,10 +642,7 @@ class App:
             elif ref.last > ref.first:
                 self._show_passage(self.bible.shrink(ref))
             else:
-                self._pick_from(ref)
-                self.mode = Mode.BIBLE_PICK
-                self._cancel_slides()       # ...including one still drawing
-                self.player.show_idle()     # never leave a stale verse up
+                self._leave_slide(ref)      # never leave a stale verse up
         elif k is Kind.DIGIT:
             if len(self.bible_entry) < 3:
                 self.bible_entry += str(event.value)
@@ -894,6 +936,7 @@ class App:
     # -- view ----------------------------------------------------------
     def tick(self) -> ViewModel:
         holding = self._hold_shutdown()
+        self._hold_picker()
         if holding:
             self.flash(holding, 0.2)     # short, so it clears the moment you let go
         self._bt_poll()
