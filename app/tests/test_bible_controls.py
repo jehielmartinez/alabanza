@@ -188,6 +188,29 @@ class TestOnTheWall:
         assert rig.app.bible_ref == Reference(JUAN, 3, 2, 3)
         assert rig.app.mode is Mode.BIBLE_SHOW
 
+    def test_the_panel_says_what_the_wall_could_fit(self, showing):
+        """A stepped range can walk into verses too long for the slide, and
+        the renderer drops the tail. The title must not go on promising a
+        verse the congregation cannot see."""
+        rig = showing
+        vm = rig.press(Kind.CONFIRM)                    # # -> Juan 3:2-3
+        assert vm.title == "Juan 3:2-3"
+        # half a second later the worker reports what actually went up
+        rig.slides.drawn = (Reference(JUAN, 3, 2, 3), Reference(JUAN, 3, 2, 2))
+        vm = rig.tick()
+        assert rig.app.bible_ref == Reference(JUAN, 3, 2, 2)
+        assert vm.title == "Juan 3:2"
+        assert "No cabe más" in rig.message
+
+    def test_an_older_report_does_not_undo_a_fresh_extend(self, showing):
+        """# widens the reading and the slide for it takes half a second;
+        the report still sitting there is for the narrower one before it."""
+        rig = showing
+        rig.slides.drawn = (Reference(JUAN, 3, 2, 2), Reference(JUAN, 3, 2, 2))
+        vm = rig.press(Kind.CONFIRM)                    # # -> Juan 3:2-3
+        assert rig.app.bible_ref == Reference(JUAN, 3, 2, 3)
+        assert vm.title == "Juan 3:2-3", "not trimmed back by a stale report"
+
     def test_the_range_moves_as_one(self, showing):
         rig = showing
         rig.press(Kind.CONFIRM, Kind.WHEEL_CW)

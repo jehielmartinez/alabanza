@@ -99,6 +99,7 @@ class FakeSlides:
     def __init__(self):
         self.shown: list = []
         self.cancelled = 0
+        self.drawn = None       # (asked, shown) once a slide is on the wall
 
     def show(self, ref):
         self.shown.append(ref)
