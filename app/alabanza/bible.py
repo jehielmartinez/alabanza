@@ -315,9 +315,18 @@ def best_size(bible: Bible, ref: Reference) -> int | None:
 
 
 def render(bible: Bible, ref: Reference) -> Image.Image:
-    """The slide. The largest type that fits, down to MIN_SIZE -- and at
-    MIN_SIZE regardless, so a passage that somehow got too long is cut off
-    at the bottom rather than not shown at all."""
+    """The slide alone, for tests and for anything that already knows what
+    it asked for is what it will get."""
+    return render_slide(bible, ref)[0]
+
+
+def render_slide(bible: Bible, ref: Reference) -> tuple[Image.Image, Reference]:
+    """The slide, and the reference actually on it. The largest type that
+    fits, down to MIN_SIZE -- and at MIN_SIZE regardless, so a passage that
+    somehow got too long is cut off at the bottom rather than not shown at
+    all. The returned reference is the one asked for unless verses had to
+    come off the end for room, which is the panel's cue to say the same
+    thing the wall does."""
     size = best_size(bible, ref)
     if size:
         runs, shown = _layout(bible, ref, size), ref
@@ -336,7 +345,7 @@ def render(bible: Bible, ref: Reference) -> Image.Image:
     # verses the room; 8% was for overscan and the footer can afford to lose
     draw.text((W - MARGIN_X - draw.textlength(footer, font=footer_font),
                H - MARGIN_Y - FOOTER_SIZE + 12), footer, font=footer_font, fill=DIM)
-    return image
+    return image, shown
 
 
 def _layout_regardless(bible: Bible, ref: Reference) -> tuple[list[_Run], Reference]:
@@ -388,6 +397,9 @@ class Slides:
         self._which = 0
         self._pending: Reference | None = None
         self._generation = 0
+        # what the last slide was asked for, and what it could actually
+        # carry; the app reads it to keep the panel honest about the wall
+        self.drawn: tuple[Reference, Reference] | None = None
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -425,7 +437,8 @@ class Slides:
 
     def _render(self, ref: Reference, generation: int) -> None:
         tmp = self._dir / "verse.tmp"
-        render(self._bible, ref).save(tmp, format="BMP")
+        image, shown = render_slide(self._bible, ref)
+        image.save(tmp, format="BMP")
         # Everything that decides what is on screen happens under the lock,
         # including the name flip: a discarded render must not consume a
         # slot, or the next one reuses the path mpv already has open.
@@ -436,6 +449,7 @@ class Slides:
             final = self._dir / f"verse-{self._which}.bmp"
             os.replace(tmp, final)
             self.shown.append(final)
+            self.drawn = (ref, shown)
             self._player.show_image(final)
 
     def _run(self) -> None:

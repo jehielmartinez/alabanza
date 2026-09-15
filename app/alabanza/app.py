@@ -502,6 +502,25 @@ class App:
         if self.slides is not None:
             self.slides.cancel()
 
+    def _adopt_the_trim(self) -> None:
+        """The wall is the authority on how much fits.
+
+        A wheel step keeps the width of the range it is moving, so a reading
+        of three verses can walk into three longer ones that do not fit; the
+        renderer then drops the tail. Only it knows how far it got, and it
+        knows half a second late, so the panel adopts the answer when it
+        arrives instead of laying the passage out on the loop thread to
+        predict it. Said once, in the words a refused # already uses.
+        """
+        if self.slides is None or self.mode is not Mode.BIBLE_SHOW:
+            return
+        if self.slides.drawn is None:
+            return
+        asked, shown = self.slides.drawn
+        if asked == self.bible_ref and shown != asked:
+            self.bible_ref = shown
+            self.flash("No cabe más")
+
     def _show_passage(self, ref: Reference) -> None:
         self.bible_ref = ref
         self.bible_entry = ""
@@ -878,6 +897,7 @@ class App:
         if holding:
             self.flash(holding, 0.2)     # short, so it clears the moment you let go
         self._bt_poll()
+        self._adopt_the_trim()
         self._save_if_due()
         if self.now_playing and not self.player.active:
             self.now_playing = None       # hymn finished on its own

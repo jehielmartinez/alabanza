@@ -156,7 +156,17 @@ operator can confirm it is the right one without looking at the wall;
 hint `gira · # añade · * quita`. The D-pad's ◀ ▶ are not advertised.
 
 Leaving with `*` from a single verse restores the screensaver on HDMI
-(`show_idle`), so the wall is never left on a stale verse.
+(`show_idle`), so the wall is never left on a stale verse — including a
+slide still being drawn, which is cancelled rather than allowed to land on
+top of whatever replaced it.
+
+Row 2 always names the range actually on the wall. A wheel step keeps the
+width of the range it moves, so a reading of three verses can walk into
+three longer ones that do not fit; the renderer drops the tail, reports how
+far it got, and the panel adopts that and says `No cabe más` once. Only the
+renderer knows, and it knows half a second late, so the panel takes the
+answer when it arrives rather than laying the passage out on the loop
+thread to predict it.
 
 ## The slide
 
@@ -237,10 +247,18 @@ is running anyway.
 
 - `tools/build_bible.py` downloads (or takes a path to) the dscottpi JSON
   and writes `tools/bible/rvr1960/`. Runs on the laptop, once. Reports
-  verse-count anomalies against the standard table.
+  verse-count anomalies against the standard table, and **writes nothing
+  when it has anything to report** (`--force` overrides a fault already
+  understood): the checks are only worth having if a defective build cannot
+  reach the card. Chapters and verses are placed by their own number, so a
+  gap in the source leaves a hole rather than renumbering everything after
+  it.
 - `tools/bible/` is **git-ignored**, like `tools/library/` — the text is not
   ours to publish.
-- `sync.sh` includes `tools/bible/` by default (5 MB).
+- `sync.sh` includes `tools/bible/` by default (5 MB) when this machine has
+  it. It is git-ignored, so a clone that has not run `build_bible.py`
+  excludes it instead — `--delete` would otherwise erase the copy already on
+  the device.
 - No new apt packages: `fonts-dejavu-core` is already on Pi OS Lite;
   Pillow is already a dependency. The armv6l Pillow 10.4 pin from piwheels
   is what ran the measurements above.

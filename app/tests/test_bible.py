@@ -17,7 +17,7 @@ import alabanza.bible as bible_module
 from alabanza.bible import (
     FOOTER_SIZE, MARGIN_X, MARGIN_Y, MAX_SIZE, MIN_SIZE, H, W,
     Bible, Reference, Slides, _layout, _layout_regardless, best_size, fits,
-    render, search_books,
+    render, render_slide, search_books,
 )
 from alabanza.books import BOOKS, BY_KEY, CANONICAL_VERSES, fold
 
@@ -215,6 +215,16 @@ class TestTheSlide:
         footer_only = lit(render(Bible(data={JUAN: [[""]]}), ref))
         assert lit(render(huge, ref)) > footer_only * 5, "the slide is words, not a footer"
 
+    def test_the_slide_reports_the_range_it_could_carry(self):
+        """What the panel needs to put in its title: only the renderer knows
+        how much fitted."""
+        b = Bible(data={JUAN: [["palabra " * 90] * 6]})
+        ref = Reference(JUAN, 1, 1, 6)
+        assert not fits(b, ref)
+        assert render_slide(b, ref)[1].last < ref.last
+        one = Reference(JUAN, 1, 1, 1)
+        assert render_slide(b, one)[1] == one, "nothing to say when it all fits"
+
     def test_the_footer_names_what_is_on_the_slide_not_what_was_asked(self):
         """Verses dropped for room must not still be promised in the label:
         the congregation reads the footer to find the passage."""
@@ -270,14 +280,14 @@ class TestTheWorker:
         inside the half second the Zero W takes to draw. What the caller puts
         on HDMI next has to stay there."""
         drawing, finish = threading.Event(), threading.Event()
-        real = bible_module.render
+        real = bible_module.render_slide
 
         def slowly(bible, ref):
             drawing.set()
             finish.wait(5)
             return real(bible, ref)
 
-        monkeypatch.setattr(bible_module, "render", slowly)
+        monkeypatch.setattr(bible_module, "render_slide", slowly)
         player = FakePlayer()
         slides = Slides(player, make_bible(), directory=tmp_path)
         try:
@@ -297,13 +307,13 @@ class TestTheWorker:
         player = FakePlayer()
         slides = Slides(player, make_bible(), directory=tmp_path, threaded=False)
         slides.show(Reference(JUAN, 3, 16, 16))         # verse-1 goes up
-        real = bible_module.render
+        real = bible_module.render_slide
 
         def cancelled_midway(bible, ref):
             slides.cancel()                             # * lands while it draws
             return real(bible, ref)
 
-        monkeypatch.setattr(bible_module, "render", cancelled_midway)
+        monkeypatch.setattr(bible_module, "render_slide", cancelled_midway)
         slides.show(Reference(JUAN, 3, 17, 17))
         monkeypatch.undo()
         slides.show(Reference(JUAN, 3, 18, 18))
@@ -345,6 +355,39 @@ class TestTheConverter:
         assert any("missing book: Rut" in p for p in problems)
         assert any("Tobías" in p for p in problems)
         assert any("Judas 1" in p for p in problems)
+
+    def test_a_gap_leaves_a_hole_instead_of_renumbering(self, build):
+        """The failure this script exists to prevent: Genesis 4's words
+        under the label "Genesis 3", forever, with nothing on the panel or
+        the wall to say so."""
+        raw = self.source()
+        del raw["Génesis"]["3"]
+        raw["Judas"]["1"] = {"1": "a", "3": "c"}
+        books, problems = build.convert(raw)
+        assert len(books[GENESIS]) == 50, "the chapters keep their numbers"
+        assert books[GENESIS][2] == [], "3 is missing"
+        assert books[GENESIS][3] == ["Uno.", "Dos"], "and 4 is still 4"
+        assert books[BY_KEY[fold("Judas")]][0] == ["a", "", "c"], "and so do verses"
+        assert any("Génesis" in p for p in problems)
+
+    def test_it_refuses_to_write_a_source_it_complained_about(self, build, tmp_path,
+                                                             monkeypatch, capsys):
+        raw = self.source()
+        del raw["Rut"]
+        monkeypatch.setattr(build, "_fetch", lambda source: raw)
+        monkeypatch.setattr(sys, "argv", ["build_bible.py", "--out", str(tmp_path)])
+        assert build.main() == 1
+        assert "nothing written" in capsys.readouterr().out
+        assert not list(tmp_path.glob("*.json")), "a defect must not reach the card"
+
+    def test_force_writes_it_anyway(self, build, tmp_path, monkeypatch):
+        raw = self.source()
+        del raw["Rut"]
+        monkeypatch.setattr(build, "_fetch", lambda source: raw)
+        monkeypatch.setattr(sys, "argv",
+                            ["build_bible.py", "--out", str(tmp_path), "--force"])
+        assert build.main() == 0
+        assert (tmp_path / "index.json").exists()
 
     def test_what_it_writes_is_what_the_app_reads(self, build, tmp_path):
         books, _ = build.convert(self.source())
