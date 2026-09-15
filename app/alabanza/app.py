@@ -88,6 +88,20 @@ def _step(kind: Kind) -> int:
     return 0
 
 
+def _out_of_range(typed: int, maximum: int) -> str:
+    """Why a typed number was not taken, naming the bound it missed.
+
+    "Máximo 50" in answer to a `0` names the wrong end of the range, and a
+    volunteer reads that as the app not having understood them -- `0` is a
+    real key on this panel and typing it is not a mistake worth a confusing
+    answer. A `maximum` below 1 means there is nothing to number at all: a
+    book file that did not load, which is neither bound.
+    """
+    if maximum < 1:
+        return "Sin texto"
+    return "Mínimo 1" if typed < 1 else f"Máximo {maximum}"
+
+
 def _nudge(kind: Kind) -> int:
     """Adjusting a number, which is not the same gesture as moving in a list.
 
@@ -545,8 +559,8 @@ class App:
         self.pick_entry = ""
         if 1 <= typed <= maximum:
             return typed
-        self.flash(f"Máximo {maximum}")
-        return min(max(1, typed), maximum)
+        self.flash(_out_of_range(typed, maximum))
+        return min(max(1, typed), max(1, maximum))
 
     def _cancel_slides(self) -> None:
         """Drop any slide still drawing, before putting something else on
@@ -672,7 +686,8 @@ class App:
                 typed = int(self.bible_entry)
                 target = self.bible.jump(ref, typed)
                 if target.first != typed:
-                    self.flash(f"Máximo {self.bible.verses(ref.book, ref.chapter)}")
+                    self.flash(_out_of_range(
+                        typed, self.bible.verses(ref.book, ref.chapter)))
                 self._show_passage(target)
             else:
                 more = self.bible.extend(ref)
