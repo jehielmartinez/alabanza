@@ -988,6 +988,10 @@ class App:
         if holding:
             self.flash(holding, 0.2)     # short, so it clears the moment you let go
         self._bt_poll()
+        if self.player.poll_display(self._now()):
+            # Said once, because until now a projector switched on after the
+            # box had nothing anywhere to say it had been noticed.
+            self.flash("Proyector conectado", 3)
         self._adopt_the_trim()
         self._save_if_due()
         if self.now_playing and not self.player.active:

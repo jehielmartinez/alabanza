@@ -48,6 +48,11 @@ BLACK_IMAGE = IDLE_DIR / "black.png"
 # a load is in flight, before concluding it failed.
 START_GRACE = 5.0
 
+# How often a player that booted with no display looks for one. A sysfs read
+# every couple of seconds is nothing, and once there is a display there is
+# nothing left to look for. See Player.poll_display.
+DISPLAY_POLL_S = 2.0
+
 # When to nudge a still out of the back buffer, in seconds after the load,
 # and by how much to zoom while doing it. See _StillRepaint.
 REPAINT_NUDGES = (0.1, 0.3, 0.6, 1.0, 1.5, 2.2)
@@ -315,6 +320,7 @@ class Player:
         self._showing_still = False
         self._starting_until = 0.0
         self._af = ""                   # the speed filter chain mpv was last given
+        self.last_display_error: Exception | None = None
         options = {
             "vid": "auto" if video else "no",
             "osc": False,
@@ -350,6 +356,11 @@ class Player:
         # caller asked for: --no-video and an unplugged HDMI arrive at the
         # same place, and everything downstream has to treat them alike.
         self._video = options["vid"] != "no"
+        # Video *asked for*, which is not the same as video *available*:
+        # --no-video is a choice and must survive a projector being plugged
+        # in, while an unplugged HDMI is a state to grow out of.
+        self._video_wanted = video
+        self._next_display_poll = 0.0       # only consulted while video is off
         # Built before the first still goes up, because that first still
         # needs it too. Nothing to repaint with no display.
         self._repaint = _StillRepaint(self._mpv) if self._video else None
@@ -398,6 +409,64 @@ class Player:
         chosen = self._idle_queue.pop(0)
         self._idle_shown = chosen
         self.show_image(chosen)
+
+    def poll_display(self, now: float | None = None) -> bool:
+        """Pick up a projector switched on after the box booted.
+
+        The probe runs once, in the constructor. On a device that is
+        routinely switched on before the projector — and whose projector
+        sleeps between services — "nothing plugged in" at that instant meant
+        no video for the whole morning: no screensaver, no verses, hymns
+        audio-only, and nothing on the panel to say why. Only restarting the
+        unit recovered it, which is not something to ask of a volunteer
+        mid-service.
+
+        Returns True on the tick that turns video on, so the panel can say so
+        once. Cheap enough to sit in the loop: a couple of sysfs reads every
+        two seconds, and only while there is nothing on HDMI.
+        """
+        if self._video or not self._video_wanted:
+            return False
+        now = time.monotonic() if now is None else now
+        if now < self._next_display_poll:
+            return False
+        self._next_display_poll = now + DISPLAY_POLL_S
+        options = _video_options()
+        if options.get("vid") == "no":
+            return False
+        return self._open_video(options)
+
+    def _open_video(self, options: dict) -> bool:
+        """Turn video on in the instance that started without it.
+
+        mpv takes all of it at runtime — `vo`, `gpu-context`, `drm-device`,
+        `hwdec`, and `vid` last — so the player is opened in place rather
+        than rebuilt. Rebuilding would mean carrying the volume, the output
+        device, the speed and whatever is playing across a new instance, and
+        dropping the audio of a hymn already under way to do it.
+
+        A hymn playing through this gains its picture: selecting a video
+        track is exactly what mpv does live. Nothing is loaded over it — the
+        screensaver only goes up if there is nothing to interrupt.
+        """
+        try:
+            for key, value in options.items():
+                if key == "vid":
+                    continue
+                self._mpv[key.replace("_", "-")] = value
+            self._mpv["vid"] = "auto"
+            self._mpv["image-display-duration"] = "inf"
+        except Exception as exc:            # noqa: BLE001
+            # Leave video off and try again on the next poll: a display that
+            # half-appears is likelier than one that is gone for good, and a
+            # player that raises here takes the hymns down with it.
+            self.last_display_error = exc
+            return False
+        self._video = True
+        self._repaint = _StillRepaint(self._mpv)
+        if not self.active:
+            self.show_idle()
+        return True
 
     def show_black(self) -> None:
         """Nothing on the wall — without letting the console onto it.

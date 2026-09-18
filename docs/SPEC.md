@@ -28,6 +28,11 @@ Prototyping continues on a Pi 4 Model B (same BCM2711 generation, same hardware 
 - Lives on the **SD card, read-only partition**, loaded once at provisioning. Content is not expected to change; rare updates happen offline with a card reader.
 - Provisioning builds a **number → title → file index** (from filenames or a generated manifest); runtime never parses filenames.
 - When no HDMI is connected, playback is audio-only (video decode suppressed).
+  The probe runs at startup **and every two seconds while there is no
+  display**, so a projector switched on after the box — or one waking from
+  standby between services — is picked up in place, without restarting
+  anything. The panel says `Proyector conectado` once when it is. `--no-video`
+  is a choice and is never undone this way.
 
 ## Controls
 

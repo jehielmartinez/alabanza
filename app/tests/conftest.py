@@ -47,6 +47,8 @@ class FakePlayer:
         self.seeks: list[float] = []
         self.showing_idle = False
         self.showing_black = False   # the Bible screens clear the wall
+        self.video = True
+        self.display_appears = False  # set it to stage a projector switched on late
         self.images: list = []       # stills put on HDMI (verse slides)
 
     def play(self, path):
@@ -56,6 +58,15 @@ class FakePlayer:
         self.showing_idle = False
         self.showing_black = False
         self.speed = 1.0        # spec: speed resets per hymn
+
+    def poll_display(self, now=None):
+        """True on the one tick a late projector is picked up."""
+        if not self.display_appears:
+            return False
+        self.display_appears = False
+        self.video = True
+        self.showing_idle = True
+        return True
 
     def show_idle(self):
         self.showing_idle = True

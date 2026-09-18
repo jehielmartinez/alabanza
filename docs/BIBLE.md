@@ -62,11 +62,12 @@ redraw that is the present the still never got. It runs on its own thread —
 keypress the keypad never sees — and repeats because the load it chases is
 asynchronous. A hymn cancels it; video presents its own frames.
 
-Two things worth keeping in mind next time. A projector switched on *after*
-the box boots is still no display as far as `_drm_device` is concerned, and
-video stays off for the whole session. And `Slides.last_error` used to be
-swallowed, which made a failing slide worker indistinguishable from an app
-that had stopped asking for slides; it goes to the journal now.
+Two things found alongside it. A projector switched on *after* the box used
+to leave `_drm_device` answering "nothing there" for the whole session —
+fixed by `Player.poll_display` (SPEC, library and content). And
+`Slides.last_error` used to be swallowed, which made a failing slide worker
+indistinguishable from an app that had stopped asking for slides; it goes to
+the journal now.
 
 ## The text
 

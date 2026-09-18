@@ -33,6 +33,8 @@ class FakeMPV:
         object.__setattr__(self, "af", "")
         object.__setattr__(self, "pause", False)
         object.__setattr__(self, "volume", 0)
+        object.__setattr__(self, "filename", None)      # what Player.active reads
+        object.__setattr__(self, "eof_reached", False)
 
     def __setattr__(self, name, value):
         with self._guard:
