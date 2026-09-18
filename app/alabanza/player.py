@@ -11,6 +11,7 @@ import os
 import platform
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -41,6 +42,11 @@ IDLE_DIR = Path(__file__).parent / "assets"
 # as "the hymn finished on its own". How long to keep answering `active` while
 # a load is in flight, before concluding it failed.
 START_GRACE = 5.0
+
+# When to nudge a still out of the back buffer, in seconds after the load,
+# and by how much to zoom while doing it. See _StillRepaint.
+REPAINT_NUDGES = (0.1, 0.3, 0.6, 1.0, 1.5, 2.2)
+REPAINT_ZOOM = 0.0001
 
 
 def _idle_images(directory: Path = IDLE_DIR) -> list[Path]:
@@ -181,6 +187,121 @@ def _video_override() -> dict | None:
     return options
 
 
+class _StillRepaint:
+    """Makes mpv actually scan out a still it has already drawn.
+
+    Measured on the Zero W with a projector (2026-09-18): a still whose
+    size matches the one already on screen is decoded, rendered, and
+    reported shown — mpv logs `first video frame after restart shown`
+    about 0.43 s after the load — and never reaches the panel. Only a load
+    that *changes the video size* lands, because that reconfigures the
+    output and forces a modeset. Otherwise the new frame sits in the back
+    buffer with nothing to push it out.
+
+    It hides well. Screensavers are 1920x1080 and verse slides 1280x720, so
+    the first slide after a screensaver is a size change and lands, and
+    every slide after that one does not. On the panel the reference keeps
+    changing, the worker keeps drawing, mpv keeps loading the files — it
+    reads exactly like a state machine that stopped asking for slides, and
+    nothing in the app is wrong.
+
+    Writing any video property redraws the frame, and that redraw is the
+    present the still never got. `video-zoom` is the one used here: a 0.01%
+    scale nobody can see, put back the same instant. Confirmed on the board
+    against two controls that stayed dark.
+
+    The nudge cannot be done inline. `Slides._render` calls `show_image`
+    with its lock held and the loop thread takes that same lock on the next
+    turn of the wheel, so a sleep in `show_image` is a keypress the keypad
+    never sees. It happens on this thread instead, and repeats over two
+    seconds because the load it chases is asynchronous: `play()` returns in
+    about a millisecond and the frame to push out lands some hundreds of
+    milliseconds later. Six property writes spread over two seconds cost
+    nothing measurable, and a nudge that arrives early simply redraws the
+    frame that is already up.
+    """
+
+    def __init__(self, mpv_handle, schedule: tuple[float, ...] = REPAINT_NUDGES,
+                 name: str = "alabanza-repaint"):
+        self._mpv = mpv_handle
+        self._schedule = schedule
+        # One condition rather than two events: a kick has to cut short the
+        # wait between the *previous* still's nudges, or the slide the
+        # operator is looking at now waits out the schedule of the one they
+        # have already turned past.
+        self._cond = threading.Condition()
+        self._generation = 0
+        self._wanted = False
+        self._stopped = False
+        self.nudges = 0                     # what the device test counts
+        self.last_error: Exception | None = None
+        self._thread = threading.Thread(target=self._run, daemon=True, name=name)
+        self._thread.start()
+
+    def kick(self) -> None:
+        """A still has just been handed to mpv; push it out. Returns at
+        once — this is the call the loop thread can end up paying for."""
+        with self._cond:
+            self._generation += 1
+            self._wanted = True
+            self._cond.notify_all()
+
+    def cancel(self) -> None:
+        """What is on screen is not a still any more. Video presents its own
+        frames and needs no help; nudging through a hymn would only rebuild
+        the render chain under it."""
+        with self._cond:
+            self._generation += 1
+            self._wanted = False
+            self._cond.notify_all()
+
+    def _run(self) -> None:
+        with self._cond:
+            while not self._stopped:
+                if not self._wanted:
+                    self._cond.wait()
+                    continue
+                generation = self._generation
+                start = time.monotonic()
+                for at in self._schedule:
+                    if not self._hold(start + at, generation):
+                        break               # newer still, hymn, or shutting down
+                    self._cond.release()
+                    try:
+                        self._nudge()
+                    finally:
+                        self._cond.acquire()
+                else:
+                    if generation == self._generation:
+                        self._wanted = False    # schedule done; nothing to chase
+
+    def _hold(self, deadline: float, generation: int) -> bool:
+        """Wait for the next nudge, or give up on this still. Called with the
+        condition held; `wait` drops it, so a kick lands immediately."""
+        while True:
+            if self._stopped or generation != self._generation:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True
+            self._cond.wait(remaining)
+
+    def _nudge(self) -> None:
+        try:
+            self._mpv["video-zoom"] = REPAINT_ZOOM
+            self._mpv["video-zoom"] = 0.0
+            self.nudges += 1
+        except Exception as exc:            # noqa: BLE001
+            # A projector that will not repaint must not stop the hymns.
+            self.last_error = exc
+
+    def close(self) -> None:
+        with self._cond:
+            self._stopped = True
+            self._cond.notify_all()
+        self._thread.join(timeout=1.0)
+
+
 class Player:
     def __init__(self, video: bool = True, idle_images: list[Path] | None = None):
         self._idle_images = _idle_images() if idle_images is None else idle_images
@@ -224,6 +345,9 @@ class Player:
         # caller asked for: --no-video and an unplugged HDMI arrive at the
         # same place, and everything downstream has to treat them alike.
         self._video = options["vid"] != "no"
+        # Built before the first still goes up, because that first still
+        # needs it too. Nothing to repaint with no display.
+        self._repaint = _StillRepaint(self._mpv) if self._video else None
         self._mpv.volume = 80
         if self._video:
             # Without this an image would be shown for one second and then
@@ -234,6 +358,8 @@ class Player:
     # -- lifecycle -----------------------------------------------------
     def play(self, path: Path) -> None:
         self._showing_still = False
+        if self._repaint is not None:
+            self._repaint.cancel()
         self._starting_until = time.monotonic() + START_GRACE
         self._set_speed(1.0)  # spec: speed resets per hymn
         self._mpv.play(str(path))
@@ -283,6 +409,10 @@ class Player:
         self._showing_still = True
         self._mpv.play(str(path))
         self._mpv.pause = False
+        if self._repaint is not None:
+            # Without this the still is drawn and never scanned out: the
+            # projector keeps the previous picture. See _StillRepaint.
+            self._repaint.kick()
 
     def toggle_pause(self) -> None:
         if self.active:
@@ -298,6 +428,8 @@ class Player:
             self._mpv.stop()
 
     def shutdown(self) -> None:
+        if self._repaint is not None:
+            self._repaint.close()
         self._mpv.terminate()
 
     # -- state ---------------------------------------------------------

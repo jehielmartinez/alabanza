@@ -14,6 +14,7 @@ Half a second of Pillow on the loop thread is a keypress lost.
 """
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -25,6 +26,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .books import BOOKS, VERSION
 from .library import _t9_digits
+
+log = logging.getLogger(__name__)
 
 # --- the slide -------------------------------------------------------------
 #
@@ -487,6 +490,10 @@ class Slides:
                 self._warm_the_next_fit(generation)
             except Exception as exc:            # noqa: BLE001
                 self.last_error = exc           # a bad slide must not stop the hymns
+                # ...but it must not be silent either. Kept to itself, this
+                # is indistinguishable from the app never asking for a
+                # slide, and that is a long evening with a projector.
+                log.exception("slide failed for %s", ref)
 
     def close(self) -> None:
         self.cancel()           # nothing lands on HDMI after the app is down

@@ -1,6 +1,7 @@
 # Biblia — verses on the projector
 
-> **Status: BUILT, 2026-09-14** (`app/alabanza/bible.py`, `tools/build_bible.py`).
+> **Status: BUILT, 2026-09-14; verified on a projector 2026-09-18**
+> (`app/alabanza/bible.py`, `tools/build_bible.py`).
 > Every number below was measured on the Zero W demo board (armv6l) unless
 > it says otherwise. What changed between the spec and the code is noted
 > in place.
@@ -38,11 +39,34 @@ the whole RVR1960 is a 5 MB JSON (66 books, 1,189 chapters, 31,104 verses,
 median verse 115 characters, longest 450). Fonts: DejaVu Serif and Serif
 Bold are already installed by Pi OS Lite, nothing to vendor.
 
-**The one thing not measured**: mpv actually painting a still image over
-HDMI on the Zero W. The screensavers go through the identical path, so if
-the projector showed a screensaver at the church test, this is proven. HDMI
-was unplugged on the bench today, so it could not be re-checked. Verify it
-first, before writing any code (§ Build order).
+**The one thing not measured** was mpv actually painting a still image over
+HDMI on the Zero W. It was checked on 2026-09-18, and it failed — the
+reasoning that made it look safe (the screensavers go through the identical
+path) is exactly what hid it, because they are a *different size*.
+
+A still whose size matches the one already on screen is decoded, rendered
+and reported shown — mpv logs `first video frame after restart shown` about
+0.43 s after the load — and never reaches the panel. Only a load that
+changes the video size lands, because that reconfigures the output and
+forces a modeset; otherwise the frame sits in the back buffer with nothing
+to push it out. Screensavers are 1920×1080 and slides 1280×720, so the
+first slide of a reading landed and every one after it did not, while the
+panel, the worker and mpv all looked healthy. Confirmed on the board by
+alternating sizes deliberately: of `1920, 1280, 1280, 1280, 1920, 1920,
+1280`, only the four size changes appeared.
+
+The fix is `player._StillRepaint`: after every still, write `video-zoom` to
+0.0001 and back to 0, six times over two seconds. The write forces the
+redraw that is the present the still never got. It runs on its own thread —
+`Slides._render` calls `show_image` holding its lock, and a sleep there is a
+keypress the keypad never sees — and repeats because the load it chases is
+asynchronous. A hymn cancels it; video presents its own frames.
+
+Two things worth keeping in mind next time. A projector switched on *after*
+the box boots is still no display as far as `_drm_device` is concerned, and
+video stays off for the whole session. And `Slides.last_error` used to be
+swallowed, which made a failing slide worker indistinguishable from an app
+that had stopped asking for slides; it goes to the journal now.
 
 ## The text
 
