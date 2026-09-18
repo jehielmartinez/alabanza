@@ -207,6 +207,58 @@ class TestTheNumberFields:
         assert rig.app.pick_cursor == 0
 
 
+class TestTheWallIsTheBiblesWhileItIsOpen:
+    """A screensaver is a verse too. One of those behind the operator
+    hunting for a passage reads as the reading itself, so the projector
+    goes black for as long as the Bible has it, and only comes back to
+    the screensaver on the way out."""
+
+    def test_opening_the_bible_clears_the_wall(self, rig):
+        open_bible(rig)
+        assert rig.app.mode is Mode.BIBLE_PICK
+        assert rig.player.showing_black
+        assert not rig.player.showing_idle
+
+    def test_the_picker_stays_black_while_a_passage_is_chosen(self, rig):
+        open_bible(rig)
+        rig.press(Kind.CONFIRM)                 # book -> chapter
+        rig.press(Kind.WHEEL_CW, Kind.CONFIRM)  # chapter -> verse
+        assert rig.player.showing_black, "nothing on the wall until a verse is"
+
+    def test_leaving_the_bible_gives_the_screensaver_back(self, rig):
+        open_bible(rig)
+        rig.press(Kind.STAR)                    # out of the picker, out of Biblia
+        assert rig.app.mode is Mode.MENU
+        assert rig.player.showing_idle
+        assert not rig.player.showing_black
+
+    def test_a_reading_and_back_out_is_black_then_screensaver(self, rig):
+        """The whole round trip: black to pick, verses, black again when the
+        reading comes down, screensaver only once the Bible is closed."""
+        open_bible(rig)
+        assert rig.player.showing_black
+        rig.press(Kind.CONFIRM, Kind.CONFIRM, Kind.CONFIRM)     # a passage is up
+        assert rig.app.mode is Mode.BIBLE_SHOW
+        # the slide itself is the worker's to put up, not the app's
+        assert rig.slides.shown, "a passage was asked for"
+        rig.press(Kind.STAR)                                    # reading down
+        assert rig.app.mode is Mode.BIBLE_PICK
+        assert rig.player.showing_black
+        rig.press(Kind.STAR)                                    # Biblia closed
+        assert rig.player.showing_idle
+
+    def test_backspacing_a_book_search_does_not_leave_the_bible(self, rig):
+        """* eats the query first; only an empty one is the way out, and the
+        screensaver must not come back a keystroke early."""
+        open_bible(rig)
+        rig.press((Kind.DIGIT, 5))
+        assert rig.app.pick_query == "5"
+        rig.press(Kind.STAR)
+        assert rig.app.mode is Mode.BIBLE_PICK
+        assert rig.player.showing_black
+        assert not rig.player.showing_idle
+
+
 class TestOnTheWall:
     @pytest.fixture
     def showing(self, rig):
@@ -225,13 +277,13 @@ class TestOnTheWall:
         assert len(rig.slides.shown) == 3
 
     def test_walking_off_drops_a_slide_still_drawing(self, showing):
-        """* goes back to the picker and the screensaver goes up. A render
+        """* goes back to the picker and the wall goes black. A render
         started by the last turn of the wheel must not land on top of it."""
         rig = showing
         rig.press(Kind.WHEEL_CW)
         rig.press(Kind.STAR)
         assert rig.app.mode is Mode.BIBLE_PICK
-        assert rig.player.showing_idle
+        assert rig.player.showing_black
         assert rig.slides.cancelled == 1
 
     def test_the_dpad_raises_the_verse_number_with_up(self, showing):
@@ -297,7 +349,7 @@ class TestOnTheWall:
         rig.clock.advance(PICKER_HOLD)
         rig.press(Kind.STAR_HELD)
         assert rig.app.mode is Mode.BIBLE_PICK
-        assert rig.player.showing_idle, "and the wall is back to the screensaver"
+        assert rig.player.showing_black, "and the wall is black, not a screensaver"
         assert rig.slides.cancelled >= 1, "a slide still drawing is dropped"
 
     def test_the_picker_opens_where_the_reading_was(self, showing):
@@ -387,12 +439,12 @@ class TestOnTheWall:
         assert not rig.player.active
         assert rig.app.mode is Mode.BIBLE_SHOW
 
-    def test_star_on_a_single_verse_leaves_and_restores_the_screensaver(self, showing):
+    def test_star_on_a_single_verse_leaves_and_blanks_the_wall(self, showing):
         rig = showing
-        rig.player.showing_idle = False
+        rig.player.showing_black = False
         rig.press(Kind.STAR)
         assert rig.app.mode is Mode.BIBLE_PICK
-        assert rig.player.showing_idle
+        assert rig.player.showing_black
 
     def test_all_the_way_home(self, showing):
         rig = showing

@@ -196,10 +196,19 @@ two keys are next to each other on the bottom row, and naming them the
 other way round made the operator cross their hand over. The D-pad's ◀ ▶
 are not advertised.
 
-Leaving with `*` from a single verse restores the screensaver on HDMI
-(`show_idle`), so the wall is never left on a stale verse — including a
-slide still being drawn, which is cancelled rather than allowed to land on
-top of whatever replaced it.
+Leaving with `*` from a single verse takes the wall to **black**
+(`show_black`), so it is never left on a stale verse — including a slide
+still being drawn, which is cancelled rather than allowed to land on top of
+whatever replaced it.
+
+Black, not the screensaver, for as long as the Bible is open — from the
+moment `Biblia` is chosen to the moment it is left. A screensaver is itself
+a verse, and one of those on the wall behind an operator hunting for a
+passage reads as the reading. The screensaver comes back at the one door
+out, `*` from an empty book search (`_leave_bible`), which is also the only
+place the projector stops being the Bible's. The asset is a solid-black
+1280×720 PNG next to the screensavers, deliberately the slide's size so a
+whole session — blank, verse, blank — is one video size (see below).
 
 Row 2 always names the range actually on the wall. A wheel step keeps the
 width of the range it moves, so a reading of three verses can walk into

@@ -46,6 +46,7 @@ class FakePlayer:
         self.played: list = []
         self.seeks: list[float] = []
         self.showing_idle = False
+        self.showing_black = False   # the Bible screens clear the wall
         self.images: list = []       # stills put on HDMI (verse slides)
 
     def play(self, path):
@@ -53,14 +54,21 @@ class FakePlayer:
         self.active = True
         self.paused = False
         self.showing_idle = False
+        self.showing_black = False
         self.speed = 1.0        # spec: speed resets per hymn
 
     def show_idle(self):
         self.showing_idle = True
+        self.showing_black = False
+
+    def show_black(self):
+        self.showing_black = True
+        self.showing_idle = False
 
     def show_image(self, path):
         self.images.append(path)
         self.showing_idle = False
+        self.showing_black = False
 
     def toggle_pause(self):
         if self.active:
@@ -70,6 +78,7 @@ class FakePlayer:
         self.active = False
         self.paused = False
         self.showing_idle = True
+        self.showing_black = False
 
     def finish(self):
         """The hymn reaches its end on its own, as distinct from being

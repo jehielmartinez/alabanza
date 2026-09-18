@@ -36,6 +36,11 @@ SEEK_STEP_SECONDS = 10
 # named screensaver*.png and they are picked up with no code change.
 IDLE_DIR = Path(__file__).parent / "assets"
 
+# Black, for the Bible screens: see Player.show_black. 1280x720 to match the
+# verse slides, so a whole reading — blank, verse, blank — is one video size
+# and the projector never reconfigures mid-passage.
+BLACK_IMAGE = IDLE_DIR / "black.png"
+
 # mpv loads asynchronously: play() returns in ~1 ms but `filename` only appears
 # ~12 ms later. Until then a hymn is starting but not yet reported as loaded,
 # and app.tick() -- which runs microseconds after handle() -- would read that
@@ -393,6 +398,26 @@ class Player:
         chosen = self._idle_queue.pop(0)
         self._idle_shown = chosen
         self.show_image(chosen)
+
+    def show_black(self) -> None:
+        """Nothing on the wall — without letting the console onto it.
+
+        The Bible screens want an empty projector rather than a screensaver:
+        a screensaver is itself a verse, and a second verse competing with
+        the one being read is worse than nothing at all. It is also what
+        should be up while the operator hunts for a passage in front of a
+        congregation.
+
+        Black is loaded as a still like any other, not by unloading mpv.
+        Unloading releases DRM and puts the Linux console on the projector
+        (see keep_open), which is the one thing SPEC decision 8 rules out.
+
+        A missing asset leaves whatever is already up, which is the old
+        behaviour rather than a black screen nobody asked for.
+        """
+        if not self._video or not BLACK_IMAGE.exists():
+            return
+        self.show_image(BLACK_IMAGE)
 
     def show_image(self, path: Path) -> None:
         """Put a still on HDMI: a screensaver, or a verse slide from bible.py.

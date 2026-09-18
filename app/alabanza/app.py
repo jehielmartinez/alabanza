@@ -537,6 +537,10 @@ class App:
         ref = self.bible.clamp(Reference(last[0], last[1], last[2], last[2]))
         self._pick_from(ref)
         self.mode = Mode.BIBLE_PICK
+        # The wall goes black for the whole Bible session. A screensaver is
+        # a verse too, and one of those behind the operator picking a
+        # passage reads as the reading itself.
+        self.player.show_black()
 
     def _pick_from(self, ref: Reference) -> None:
         """Open the pick screen prefilled, so the next reading is one edit
@@ -589,12 +593,19 @@ class App:
             self.flash("No cabe más")
 
     def _leave_slide(self, ref: Reference) -> None:
-        """Back to the picker, prefilled, and the wall back to the
-        screensaver -- cancelling a slide still being drawn, which would
-        otherwise land on top of it."""
+        """Back to the picker, prefilled, and the wall back to black --
+        cancelling a slide still being drawn, which would otherwise land on
+        top of it. Still inside the Bible, so still not the screensaver."""
         self._pick_from(ref)
         self.mode = Mode.BIBLE_PICK
         self._cancel_slides()
+        self.player.show_black()
+
+    def _leave_bible(self) -> None:
+        """Out of the Bible entirely: the only place the screensaver comes
+        back, since it is the only place the projector stops being the
+        Bible's."""
+        self.mode = Mode.MENU
         self.player.show_idle()
 
     def _show_passage(self, ref: Reference) -> None:
@@ -614,7 +625,7 @@ class App:
                     self.pick_query = self.pick_query[:-1]
                     self.pick_cursor = 0 if self.pick_query else self.pick_book
                 else:
-                    self.mode = Mode.MENU
+                    self._leave_bible()
             elif self.pick_entry:
                 self.pick_entry = self.pick_entry[:-1]
             else:
